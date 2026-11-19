@@ -37,6 +37,13 @@ TotalCoeff=0 token (all neighbouring total_coeff are then 0, so nC < 2; chroma D
 The first token that is not a zero token, or any token whose nC would depend on an I_PCM
 neighbour, stops the slice (the MB line of that macroblock is complete anyway).
 
+LEVEL 3 (Chapter 4.3) in one paragraph.  The scaffold is gone: every residual block of every macroblock is parsed
+(common/cavlc_resid.py: nC from the neighbours' stored total_coeff, Table 9-5, levels, total_zeros, run_before), I_PCM
+neighbours count 16, and a slice is finished only when its macroblocks end exactly on the rbsp_stop_one_bit (else
+status=error).  Five keys are added to the MB line: nc, tc (per coded block, decoding order), tcl, tccb, tccr (the
+total_coeff stored for every 4x4 block after the macroblock).  render_blocks() writes the "block boundary" file that
+Chapter 4.3's reader consumes in place of the levels / total_zeros / run_before syntax it has not learnt yet.
+
 DUMP FORMAT (shared by all Phase 4 chapters; see Chapter 4.1's Readme for the full grammar):
     SLICE <i> type=<I|P|B|SP|SI> first_mb=<n> pic_size_in_mbs=<n> header_end_bit=<n>
     MB <i> <addr> mb_type=<raw> name=<NAME> i16_mode=<0-3|-> chroma_cbp=<0-2|-> luma_cbp=<0|15|-> bit=<n>
@@ -50,13 +57,15 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-from common import ffref  # noqa: E402
+from common import ffref, cavlc_resid  # noqa: E402
 
 # Highest parsing level implemented (see LEVELS above).
 # 1 = Chapter 4.1 (mb_type, I_PCM, zero-residual Intra16x16 "skeleton").
 # 2 = Chapter 4.2 (mb_pred modes, intra_chroma_pred_mode, coded_block_pattern, mb_qp_delta, QP chain,
 #     transform_size_8x8_flag; residual only as a "zero coeff_token" scaffold).
-MAX_LEVEL = 2
+# 3 = Chapter 4.3 (neighbour availability, nC, coeff_token; the whole residual of every block is parsed so that
+#     the slice runs to its end; see LEVEL 3 below and cavlc_resid.py).
+MAX_LEVEL = 3
 
 SLICE_NAMES = ["P", "B", "I", "SP", "SI"]
 
@@ -278,6 +287,7 @@ class MbRecord:
 EXTRA_KEYS_BY_LEVEL = {
     1: [],   # 4.1: nothing extra (chroma_pred_mode / mb_qp_delta are stored in .f but not printed)
     2: ["t8x8", "modes", "chroma_pred", "cbp", "qp_delta", "qp"],   # 4.2 (see Chapter 4.2's Readme, section 5)
+    3: ["nc", "tc", "tcl", "tccb", "tccr"],                          # 4.3 (see Chapter 4.3's Readme, section 5)
 }
 
 # Table 9-4, column Intra_4x4/Intra_8x8, ChromaArrayType 1 or 2: codeNum -> coded_block_pattern
@@ -396,6 +406,9 @@ def finish_macroblock_l2(br, st, rec, kind, ctx):
     else:
         f["qp_delta"] = "-"                               # not present: inferred 0, QP_Y = QP_Y,PRED
     f["qp"] = ctx["qp"]
+    if ctx.get("res3") is not None:                       # level 3: the real residual
+        ctx["res3"].macroblock(br, rec, kind, cbp)
+        return
     # residual(): scaffold (see the module docstring)
     luma, chroma = cbp & 15, cbp >> 4
     if kind != "i16" and cbp == 0:
@@ -451,6 +464,8 @@ def parse_slice(info, level=1):
     br = BitReader(info.nal, info.header_end_bit)
     addr, seen_pcm = info.first_mb, False
     ctx = dict(qp=info.slice_qp, seen_pcm=False)
+    if level >= 3:
+        ctx["res3"] = cavlc_resid.SliceResidual(info.pic_width_in_mbs)
     try:
         while True:
             if addr >= info.pic_size_in_mbs:
@@ -462,6 +477,13 @@ def parse_slice(info, level=1):
                 seen_pcm = True
                 if level >= 2:                        # an I_PCM macroblock has no mb_qp_delta: QP_Y is inherited
                     rec.f.update(t8x8="-", modes="-", chroma_pred="-", cbp="-", qp_delta="-", qp=ctx["qp"])
+                if level >= 3:
+                    ctx["res3"].pcm(addr)
+                    rec.blocks = []
+                    rec.f.update(nc="-", tc="-")
+                    ctx["res3"].stored(rec)
+            if level >= 3 and br.pos > br.stop_bit:
+                raise ParseError(f"macroblock {addr} ends at bit {br.pos}, after the rbsp_stop_one_bit at bit {br.stop_bit}")
             if rec.stop:
                 res.status, res.note = "stopped", rec.stop
                 return res
@@ -493,6 +515,24 @@ def render_slice(res, level=1):
                        f"sum_cb={p['sum_cb']} sum_cr={p['sum_cr']}")
     out.append(f"END {i.index} mbs={len(res.mbs)} status={res.status}")
     return out
+
+
+def render_blocks(results):
+    """The block boundary file of Chapter 4.3 (level 3): one BLK line per coded residual block, decoding order.
+        SLICE <slice_index> blocks=<n>
+        BLK <slice_index> <mb_addr> <kind> <idx> start=<bit> end=<bit>
+    kind: i16dc luma i16ac cbdc crdc cbac crac; idx: luma4x4BlkIdx (0-15) or chroma4x4BlkIdx (0-3), 0 for DC blocks;
+    start = first bit of the block's coeff_token, end = first bit after the block (= start of the next block, or
+    of the next macroblock), both counted from the first bit of the NAL unit header."""
+    out = []
+    for r in results:
+        if r.status in ("skipped",):
+            continue
+        blks = [(rec.addr, b) for rec in r.mbs for b in getattr(rec, "blocks", [])]
+        out.append(f"SLICE {r.info.index} blocks={len(blks)}")
+        for addr, b in blks:
+            out.append(f"BLK {r.info.index} {addr} {b['kind']} {b['idx']} start={b['start']} end={b['end']}")
+    return "\n".join(out) + "\n"
 
 
 def histogram(results):
