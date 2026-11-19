@@ -38,90 +38,13 @@ sys.path.insert(0, os.path.join(HERE, ".."))
 sys.path.insert(0, HERE)
 from common import cavlc_ref as ref, ffref, testfiles  # noqa: E402
 from common.report import Report  # noqa: E402
+from common.mbdump import (KEYS_SLICE, KEYS_PCM, KEYS_END, STATUSES, die, parse_reader,  # noqa: E402,F401
+                           hist_diff, pic_type_letter, check_reference_vs_ffmpeg, manifest_path,
+                           decode_synth, pcm_pixel_problems)
 import mbgen  # noqa: E402
 
-KEYS_SLICE = ["type", "first_mb", "pic_size_in_mbs", "header_end_bit"]
 KEYS_MB = ref.MbRecord.CORE_KEYS            # mb_type name i16_mode chroma_cbp luma_cbp bit
-KEYS_PCM = ["align_bits", "sum_y", "sum_cb", "sum_cr"]
-KEYS_END = ["mbs", "status"]
-STATUSES = ("complete", "stopped", "skipped", "error")
 LEVEL = 1                                   # cavlc_ref parsing level of this chapter (see common/cavlc_ref.py)
-
-
-def die(msg, code=2):
-    print(msg, file=sys.stderr)
-    sys.exit(code)
-
-
-# ================================================================ reader output parsing
-def parse_kv(tokens, lineno, line):
-    d = {}
-    for t in tokens:
-        if "=" not in t:
-            die(f"malformed reader output, line {lineno}: expected key=value, found {t!r}: {line!r}")
-        k, v = t.split("=", 1)
-        d[k] = v
-    return d
-
-
-def parse_reader(path):
-    """-> (slices, hist).  slices: ordered list of dict(index, slice=kv, mbs=[(addr, kv)], pcm={addr: kv}, end=kv)."""
-    try:
-        text = open(path, "r").read()
-    except OSError as e:
-        die(f"cannot read reader output {path}: {e}")
-    slices, cur, hist, seen_hist = [], None, None, False
-    for no, line in enumerate(text.splitlines(), 1):
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        tok = line.split()
-        kind = tok[0]
-        if seen_hist:
-            die(f"malformed reader output, line {no}: nothing may follow the HIST line")
-
-        def need_int(s, what):
-            if not re.fullmatch(r"\d+", s):
-                die(f"malformed reader output, line {no}: {what} must be a non-negative integer, found {s!r}: {line!r}")
-            return int(s)
-        if kind == "SLICE":
-            if len(tok) < 2:
-                die(f"malformed reader output, line {no}: SLICE needs an index: {line!r}")
-            cur = dict(index=need_int(tok[1], "slice index"), slice=parse_kv(tok[2:], no, line),
-                       mbs=[], pcm={}, end=None, line=no)
-            slices.append(cur)
-        elif kind in ("MB", "PCM", "END"):
-            if cur is None or cur["end"] is not None:
-                die(f"malformed reader output, line {no}: {kind} line outside a SLICE ... END block: {line!r}")
-            if need_int(tok[1], "slice index") != cur["index"]:
-                die(f"malformed reader output, line {no}: slice index {tok[1]} inside the block of slice {cur['index']}")
-            if kind == "END":
-                cur["end"] = parse_kv(tok[2:], no, line)
-            else:
-                if len(tok) < 3:
-                    die(f"malformed reader output, line {no}: {kind} needs a macroblock address: {line!r}")
-                addr = need_int(tok[2], "macroblock address")
-                kv = parse_kv(tok[3:], no, line)
-                if kind == "MB":
-                    cur["mbs"].append((addr, kv))
-                else:
-                    cur["pcm"][addr] = kv
-        elif kind == "HIST":
-            hist = {}
-            for t in tok[1:]:
-                m = re.fullmatch(r"(\d+):(\d+)", t)
-                if not m:
-                    die(f"malformed reader output, line {no}: HIST entries look like 3:17, found {t!r}")
-                hist[int(m.group(1))] = int(m.group(2))
-            seen_hist = True
-        else:
-            die(f"malformed reader output, line {no}: unknown line type {kind!r} (allowed: SLICE MB PCM END HIST, "
-                f"or # comments)")
-    if cur is not None and cur["end"] is None:
-        die(f"malformed reader output: the block of slice {cur['index']} has no END line")
-    if not seen_hist:
-        die("malformed reader output: no HIST line at the end")
-    return slices, hist
 
 
 def expected_structs(results):
@@ -177,65 +100,8 @@ def compare(rep, exp_slices, exp_hist, act_slices, act_hist):
                                     f"{hist_diff(exp_hist, act_hist)}")
 
 
-def hist_diff(a, b):
-    """Only the mb_type values whose counts differ, e.g. '7: 3 vs 2, 30: 0 vs 1'."""
-    keys = sorted(k for k in set(a) | set(b) if a.get(k, 0) != b.get(k, 0))
-    return ", ".join(f"{k}: {a.get(k, 0)} vs {b.get(k, 0)}" for k in keys[:10]) + (" ..." if len(keys) > 10 else "")
-
-
 # ================================================================ checking the reference itself
-def pic_type_letter(info):
-    return {0: "P", 1: "B", 2: "I"}.get(info.slice_type, "?")
-
-
-def check_reference_vs_ffmpeg(path, infos, results, td):
-    """-> (message list of problems, summary text)."""
-    npics = infos[-1].picture + 1 if infos else 0
-    w0 = infos[0].pic_width_in_mbs
-    same_size = all(i.pic_width_in_mbs == w0 and i.pic_size_in_mbs == infos[0].pic_size_in_mbs for i in infos)
-    grid = ref.ffmpeg_mb_grid(path, td, dims=(w0, infos[0].pic_size_in_mbs // w0) if same_size else None,
-                              count=npics)
-    if grid is None:
-        return [], "ffmpeg cross-check skipped: ffmpeg's log was garbled on every try"
-    if len(grid) < npics:
-        return [], f"ffmpeg cross-check skipped: ffmpeg showed {len(grid)} pictures, stream has {npics}"
-    grid = grid[-npics:]
-    first_type = {}
-    for i in infos:
-        first_type.setdefault(i.picture, pic_type_letter(i))
-    types_dec = "".join(first_type[p] for p in range(npics))
-    types_out = "".join(g["type"] for g in grid)
-    usable = None                                   # picture indices we may compare
-    note = ""
-    if types_dec == types_out:
-        usable = set(range(npics))
-    elif types_dec[:1] == "I" and types_out[:1] == "I":
-        usable = {0}
-        note = " (pictures are reordered: only the first picture could be matched safely)"
-    else:
-        return [], "ffmpeg cross-check skipped: could not match ffmpeg's pictures to slices"
-    problems, n = [], 0
-    for r in results:
-        p = r.info.picture
-        if p not in usable:
-            continue
-        rows = grid[p]["rows"]
-        w = r.info.pic_width_in_mbs
-        for rec in r.mbs:
-            y, x = divmod(rec.addr, w)
-            if y >= len(rows) or x >= len(rows[y]):
-                problems.append(f"slice {r.info.index} addr {rec.addr}: ffmpeg's macroblock map has no such macroblock")
-                continue
-            ch = rows[y][x]
-            cls = ref.CLASS_OF_CHAR.get(ch, f"inter or other class {ch!r}")
-            mine = rec.f["name"]
-            mine_cls = "I_16x16" if mine.startswith("I_16x16") else mine
-            n += 1
-            if cls != mine_cls:
-                problems.append(f"slice {r.info.index} addr {rec.addr}: reference says {mine}, ffmpeg says {cls}")
-    return problems, f"ffmpeg cross-check: {n} macroblock classes in {len(usable)} picture(s) agree{note}"
-
-
+# (the ffmpeg macroblock-class check, check_reference_vs_ffmpeg, is shared: common/mbdump.py)
 def expected_prefix(mbs):
     """The 4.1 stop rule applied to the generator's list of macroblocks -> (parsed entries, status)."""
     out, seen_pcm = [], False
@@ -250,11 +116,6 @@ def expected_prefix(mbs):
             continue
         return out, "stopped"
     return out, "complete"
-
-
-def manifest_path(path):
-    base = path[:-4] if path.lower().endswith(".264") else path
-    return base + ".manifest.json"
 
 
 def check_reference_vs_manifest(path, results, td, manifest):
@@ -288,40 +149,8 @@ def check_reference_vs_manifest(path, results, td, manifest):
                 if p is None or (p["sum_y"], p["sum_cb"], p["sum_cr"]) != want_p or p["samples"] != s:
                     problems.append(f"slice {k} addr {e['addr']}: PCM samples differ from generator")
     # ffmpeg must decode the stream cleanly, and PCM samples must come out unchanged
-    yuv = os.path.join(td, "synth.yuv")
-    p = ffref.run(["ffmpeg", "-v", "error", "-y", "-f", "h264", "-i", path, "-fps_mode", "passthrough",
-                   "-f", "rawvideo", "-pix_fmt", "yuv420p", yuv], timeout=120)
-    err = p.stderr.decode(errors="replace").strip()
-    if err or p.returncode != 0:
-        problems.append("ffmpeg reports errors decoding the synthetic stream: " + err[:300])
-    else:
-        w, h = manifest["width_mbs"] * 16, manifest["height_mbs"] * 16
-        fs = w * h * 3 // 2
-        data = open(yuv, "rb").read()
-        if len(data) != fs * len(manifest["pictures"]):
-            problems.append(f"ffmpeg produced {len(data) // fs} frames, expected {len(manifest['pictures'])}")
-        else:
-            npcm = 0
-            for pi, pic in enumerate(manifest["pictures"]):
-                fr = data[pi * fs:(pi + 1) * fs]
-                for s in pic:
-                    for e in s["mbs"]:
-                        if e["kind"] != "pcm":
-                            continue
-                        npcm += 1
-                        smp = bytes.fromhex(e["samples"])
-                        my, mx = divmod(e["addr"], manifest["width_mbs"])
-                        got = bytearray()
-                        for yy in range(16):
-                            o = (my * 16 + yy) * w + mx * 16
-                            got += fr[o:o + 16]
-                        for plane in range(2):
-                            base = w * h + plane * (w // 2) * (h // 2)
-                            for yy in range(8):
-                                o = base + (my * 8 + yy) * (w // 2) + mx * 8
-                                got += fr[o:o + 8]
-                        if bytes(got) != smp:
-                            problems.append(f"picture {pi} addr {e['addr']}: ffmpeg's decoded pixels differ from the I_PCM samples")
+    p2, frames = decode_synth(path, manifest, td)
+    problems += p2 or pcm_pixel_problems(manifest, frames)
     return problems, f"synthetic-stream checks: {nmb} macroblocks match the generator manifest; ffmpeg decodes the stream " \
                      f"without errors and every I_PCM macroblock's pixels equal its raw samples"
 

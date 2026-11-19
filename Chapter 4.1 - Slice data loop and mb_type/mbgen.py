@@ -1,4 +1,4 @@
-"""Synthetic I-slice generator for the Chapter 4.1 harness (and reusable by 4.2 - 4.4).
+"""Synthetic I-slice generator for the Chapter 4.1 harness (bit writer: common/bitwriter.py).
 
 It writes a tiny H.264 stream (SPS, PPS, IDR pictures made of I slices, CAVLC) whose macroblocks
 are chosen on purpose: every mb_type 0..25, I_PCM with random samples, Intra16x16 macroblocks with
@@ -12,54 +12,15 @@ TotalCoeff = 0.  Its bit pattern depends on nC, which depends on the neighbours'
 only neighbours with non-zero counts are I_PCM macroblocks (16 per block, 9.2.1), which is why the
 generator computes nC at all.
 """
+import os
 import random
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from common.bitwriter import W, escape, nal  # noqa: E402,F401  (shared with Chapter 4.2's generator)
 
 W_MBS, H_MBS = 6, 5                      # 96 x 80 pixels
 N_MBS = W_MBS * H_MBS
-
-
-class W:
-    def __init__(self):
-        self.bits = []
-
-    def raw(self, n, v):
-        assert 0 <= v < (1 << n) or n == 0, (n, v)
-        self.bits += [(v >> (n - 1 - i)) & 1 for i in range(n)]
-
-    def ue(self, v):
-        assert v >= 0
-        v += 1
-        n = v.bit_length()
-        self.raw(n - 1, 0)
-        self.raw(n, v)
-
-    def se(self, v):
-        self.ue(2 * v - 1 if v > 0 else -2 * v)
-
-    def pos(self):
-        """Bit position counted from the NAL header's first bit (header byte = 8 bits)."""
-        return 8 + len(self.bits)
-
-    def rbsp(self):
-        b = self.bits + [1]
-        while len(b) % 8:
-            b.append(0)
-        return bytes(int("".join(map(str, b[i:i + 8])), 2) for i in range(0, len(b), 8))
-
-
-def escape(rbsp):
-    out, zeros = bytearray(), 0
-    for x in rbsp:
-        if zeros >= 2 and x <= 3:
-            out.append(3)
-            zeros = 0
-        out.append(x)
-        zeros = zeros + 1 if x == 0 else 0
-    return bytes(out)
-
-
-def nal(header, rbsp):
-    return b"\x00\x00\x00\x01" + bytes([header]) + escape(rbsp)
 
 
 def sps_nal(log2_fn_minus4=0):
