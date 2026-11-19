@@ -1,0 +1,11 @@
+*.ts
+*.264
+*.yuv
+*.ppm
+*.png
+__pycache__/
+*.pyc
+.cache/
+out/
+ref*/
+tools/
