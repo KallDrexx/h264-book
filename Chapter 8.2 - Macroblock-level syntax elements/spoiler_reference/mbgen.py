@@ -1,0 +1,464 @@
+"""Chapter 8.2 synthetic stream generator: valid CABAC slices with MANY macroblocks, built with the independent
+arithmetic encoder (cabac_enc.py) from a list of macroblocks chosen at random, so the expected (element, value) lines are
+known by construction (the manifest) and never come from a decoder.
+
+Macroblock kinds: I_NxN, I_16x16, I_PCM (all slice types), P_Skip / B_Skip, B_Direct_16x16, and inter macroblocks with
+16x16 / 16x8 / 8x16 partitions with zero motion vector differences and one reference per list (so no ref_idx).
+Residual data is replaced by the cheapest legal thing: every coded_block_flag the macroblock owes is coded as 0.  That keeps
+the streams decodable by ffmpeg while letting coded_block_pattern, mb_qp_delta and all neighbour rules be non-trivial
+(any macroblock can have cbp != 0).  Deblocking is disabled, so I_PCM samples can be checked in ffmpeg's output.
+
+The context selection below is written independently of mbref.py (neighbour descriptors, closed formulas for the
+all-zero coded_block_flag case); ffmpeg decoding the result and mbref parsing it are the two cross-checks.
+"""
+import os
+import random
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(HERE, "..", ".."))
+import cabac_enc  # noqa: E402
+import cabac_ref as R  # noqa: E402
+from common import bitwriter  # noqa: E402
+
+_PAIRS = [("L0", "L0"), ("L1", "L1"), ("L0", "L1"), ("L1", "L0"), ("L0", "Bi"), ("L1", "Bi"), ("Bi", "L0"), ("Bi", "L1"),
+          ("Bi", "Bi")]
+
+
+def b_parts(mbt):
+    """B mb_type 1..21 -> list of prediction modes per partition (Table 7-14)."""
+    if mbt <= 3:
+        return [("L0", "L1", "Bi")[mbt - 1]]
+    return list(_PAIRS[(mbt - 4) // 2])
+
+
+class SliceEnc:
+    def __init__(self, stype, qp, idc, W, first_mb, rng):
+        self.t = stype
+        self.W = W
+        self.fm = first_mb
+        self.e = cabac_enc.Encoder()
+        self.st = R.init_contexts(stype, idc, qp)
+        self.recs = {}
+        self.qp = qp
+        self.prev_nz = 0
+        self.rng = rng
+        self.lines = []
+
+    # --- helpers
+    def nb(self, addr):
+        a = self.recs.get(addr - 1) if addr % self.W and addr - 1 >= self.fm else None
+        b = self.recs.get(addr - self.W) if addr - self.W >= self.fm else None
+        return a, b
+
+    def bin(self, ctx, v):
+        self.e.decision(self.st[ctx], v)
+
+    # --- mb_type pieces
+    def i_bins(self, ival, base, islice):
+        """Bins b1.. of an I mb_type (b0 = 1 already written)."""
+        e = self.e
+        if ival == 25:
+            e.terminate(1)
+            return
+        e.terminate(0)
+        v = ival - 1
+        mode, chroma, luma = v % 4, (v // 4) % 3, v // 12
+        if islice:
+            self.bin(base + 3, luma)
+            self.bin(base + 4, 1 if chroma else 0)
+            if chroma:
+                self.bin(base + 5, chroma - 1)
+            self.bin(base + 6, mode >> 1)
+            self.bin(base + 7, mode & 1)
+        else:
+            self.bin(base + 1, luma)
+            self.bin(base + 2, 1 if chroma else 0)
+            if chroma:
+                self.bin(base + 2, chroma - 1)
+            self.bin(base + 3, mode >> 1)
+            self.bin(base + 3, mode & 1)
+
+    def code_mb_type(self, m, A, B):
+        """m['mbt'] is the spec value of the slice's own table (I: 0..25, P: 0..2 inter / 5.. intra, B: 0..21 / 23.. intra)."""
+        t, mbt = self.t, m["mbt"]
+        if t == "I":
+            cond = lambda n: 0 if (n is None or n["k"] == "i4") else 1
+            self.bin(3 + cond(A) + cond(B), 0 if mbt == 0 else 1)
+            if mbt:
+                self.i_bins(mbt, 3, True)
+        elif t == "P":
+            if mbt >= 5:
+                self.bin(14, 1)
+                self.bin(17, 0 if mbt == 5 else 1)
+                if mbt > 5:
+                    self.i_bins(mbt - 5, 17, False)
+            else:
+                self.bin(14, 0)
+                b1, b2 = {0: (0, 0), 1: (1, 1), 2: (1, 0)}[mbt]
+                self.bin(15, b1)
+                self.bin(16 if b1 == 0 else 17, b2)
+        else:
+            cond = lambda n: 0 if (n is None or n["k"] in ("skip", "direct")) else 1
+            self.bin(27 + cond(A) + cond(B), 0 if mbt == 0 else 1)
+            if mbt == 0:
+                return
+            if mbt in (1, 2):
+                self.bin(27 + 3, 0)
+                self.bin(27 + 5, mbt - 1)
+                return
+            self.bin(27 + 3, 1)
+            if mbt >= 23:
+                for c, b in ((4, 1), (5, 1), (5, 0), (5, 1)):
+                    self.bin(27 + c, b)
+                iv = mbt - 23
+                self.bin(32, 0 if iv == 0 else 1)
+                if iv:
+                    self.i_bins(iv, 32, False)
+                return
+            if mbt <= 10:
+                bits = [(mbt - 3) >> 3 & 1, (mbt - 3) >> 2 & 1, (mbt - 3) >> 1 & 1, (mbt - 3) & 1]
+                tail = []
+            elif mbt == 11:
+                bits, tail = [1, 1, 1, 0], []
+            elif mbt == 22:
+                bits, tail = [1, 1, 1, 1], []
+            else:
+                b5 = mbt + 4
+                bits, tail = [(b5 >> 4) & 1, (b5 >> 3) & 1, (b5 >> 2) & 1, (b5 >> 1) & 1], [b5 & 1]
+            self.bin(27 + 4, bits[0])
+            for b in bits[1:] + tail:
+                self.bin(27 + 5, b)
+
+    # --- other elements
+    def code_intra_syntax(self, m, A, B):
+        if m["k"] == "i4":
+            for ch in m["modes"]:
+                if ch == "p":
+                    self.bin(68, 1)
+                else:
+                    self.bin(68, 0)
+                    v = int(ch)
+                    for i in range(3):
+                        self.bin(69, (v >> i) & 1)
+        cond = lambda n: 0 if (n is None or n["k"] in ("skip", "pcm", "direct", "inter") or n["cpred"] == 0) else 1
+        c = m["cpred"]
+        self.bin(64 + cond(A) + cond(B), 0 if c == 0 else 1)
+        if c:
+            self.bin(67, 0 if c == 1 else 1)
+            if c > 1:
+                self.bin(67, 0 if c == 2 else 1)
+
+    def code_cbp(self, m, A, B):
+        luma, chroma = m["cbp_l"], m["cbp_c"]
+
+        def lcond(n, bit):           # condTermFlag of an 8x8 block of another macroblock
+            if n is None or n["k"] == "pcm":
+                return 0
+            return 0 if (n["cbp_l"] >> bit) & 1 else 1
+        for b8 in range(4):
+            x8, y8 = b8 & 1, b8 >> 1
+            ca = (0 if (luma >> (b8 - 1)) & 1 else 1) if x8 else lcond(A, b8 + 1)
+            cb = (0 if (luma >> (b8 - 2)) & 1 else 1) if y8 else lcond(B, b8 + 2)
+            self.bin(73 + ca + 2 * cb, (luma >> b8) & 1)
+
+        def ccond(n, two):
+            if n is None:
+                return 0
+            if n["k"] == "pcm":
+                return 1
+            return 1 if (n["cbp_c"] == 2 if two else n["cbp_c"] > 0) else 0
+        self.bin(77 + ccond(A, False) + 2 * ccond(B, False), 1 if chroma else 0)
+        if chroma:
+            self.bin(77 + 4 + ccond(A, True) + 2 * ccond(B, True), chroma - 1)
+
+    def code_qpd(self, qpd):
+        k = 2 * qpd - 1 if qpd > 0 else -2 * qpd
+        for i in range(k):
+            self.bin(60 + (self.prev_nz if i == 0 else (2 if i == 1 else 3)), 1)
+        self.bin(60 + (self.prev_nz if k == 0 else (2 if k == 1 else 3)), 0)
+        self.qp = (self.qp + qpd + 52) % 52
+
+    def code_zero_residual(self, m, A, B):
+        """Every coded_block_flag the macroblock owes, all 0.  condTermFlag of another macroblock: 1 if it is I_PCM or if it is
+        unavailable and this macroblock is intra; 0 otherwise (all real blocks have flag 0)."""
+        intra = m["k"] in ("i4", "i16", "pcm")
+
+        def oc(n):
+            if n is None:
+                return 1 if intra else 0
+            return 1 if n["k"] == "pcm" else 0
+        cbl, cbc = m["cbp_l"], m["cbp_c"]
+        if m["k"] == "i16":
+            self.bin(85 + 0 + oc(A) + 2 * oc(B), 0)
+        cat_off = 4 if m["k"] == "i16" else 8
+        for b8 in range(4):
+            if not (cbl >> b8) & 1:
+                continue
+            for b4 in range(4):
+                x4 = (b8 & 1) * 2 + (b4 & 1)
+                y4 = (b8 >> 1) * 2 + (b4 >> 1)
+                self.bin(85 + cat_off + (oc(A) if x4 == 0 else 0) + 2 * (oc(B) if y4 == 0 else 0), 0)
+        if cbc:
+            for _ in range(2):
+                self.bin(85 + 12 + oc(A) + 2 * oc(B), 0)
+        if cbc == 2:
+            for _ in range(2):
+                for b in range(4):
+                    x, y = b & 1, b >> 1
+                    self.bin(85 + 16 + (oc(A) if x == 0 else 0) + 2 * (oc(B) if y == 0 else 0), 0)
+
+    def code_zero_mvds(self, m):
+        n = 1 if self.t == "P" else None
+        if self.t == "P":
+            modes = {0: ["L0"], 1: ["L0", "L0"], 2: ["L0", "L0"]}[m["mbt"]]
+        else:
+            modes = b_parts(m["mbt"])
+        for lst, names in ((0, ("L0", "Bi")), (1, ("L1", "Bi"))):
+            for mode in modes:
+                if mode in names:
+                    self.bin(40, 0)
+                    self.bin(47, 0)
+
+    # --- one macroblock
+    def code_mb(self, addr, m, last):
+        A, B = self.nb(addr)
+        k = m["k"]
+        if self.t != "I":
+            base = 11 if self.t == "P" else 24
+            cond = lambda n: 0 if (n is None or n["k"] == "skip") else 1
+            self.bin(base + cond(A) + cond(B), 1 if k == "skip" else 0)
+        pcm_like = False
+        if k == "skip":
+            self.recs[addr] = m
+            m["qp"] = self.qp
+            self.prev_nz = 0
+        else:
+            self.code_mb_type(m, A, B)
+            if k == "pcm":
+                self.e.align_zero()
+                self.e.raw_bytes(m["samples"])
+                self.e.restart()
+                m["qp"] = self.qp
+                self.prev_nz = 0
+            else:
+                if k in ("i4", "i16"):
+                    self.code_intra_syntax(m, A, B)
+                elif k == "inter":
+                    self.code_zero_mvds(m)
+                if k != "i16":
+                    self.code_cbp(m, A, B)
+                has_qpd = k == "i16" or m["cbp_l"] or m["cbp_c"]
+                if has_qpd:
+                    self.code_qpd(m["qpd"])
+                    self.prev_nz = 1 if m["qpd"] else 0
+                else:
+                    self.prev_nz = 0
+                m["qp"] = self.qp
+                if has_qpd:
+                    self.code_zero_residual(m, A, B)
+            self.recs[addr] = m
+        self.e.terminate(1 if last else 0)
+        m["eos"] = 1 if last else 0
+
+
+def line_fields(m):
+    """Expected dump fields (Readme section 5), assembled from the construction."""
+    k = m["k"]
+    if k == "skip":
+        mbt = "skip"
+    else:
+        mbt = str(m["mbt"])
+    intra_np = k in ("i4", "i16")
+    f = [f"mbt={mbt}",
+         f"cpred={m['cpred']}" if intra_np else "cpred=-",
+         f"modes={m['modes']}" if k == "i4" else "modes=-",
+         f"cbp={m['cbp_l'] + 16 * m['cbp_c']}" if k not in ("skip", "pcm") else "cbp=-",
+         f"qpd={m['qpd']}" if (k == "i16" or (k in ("i4", "inter", "direct") and (m["cbp_l"] or m["cbp_c"]))) else "qpd=-",
+         f"qp={m['qp']}", f"eos={m['eos']}"]
+    return " ".join(f)
+
+
+# ---------------------------------------------------------------- random macroblocks
+def rand_cbp(rng):
+    luma = rng.randrange(16) if rng.random() < 0.7 else 0
+    chroma = rng.choice([0, 0, 1, 2, 2]) if rng.random() < 0.7 else 0
+    return luma, chroma
+
+
+def rand_qpd(rng):
+    r = rng.random()
+    if r < 0.4:
+        return 0
+    if r < 0.75:
+        return rng.randint(-3, 3)
+    if r < 0.9:
+        return rng.randint(-26, 25)
+    return rng.choice([-26, 25, -25, 24])
+
+
+def rand_mb(rng, stype):
+    kinds = {"I": [("i4", 5), ("i16", 3), ("pcm", 1)],
+             "P": [("skip", 4), ("i4", 2), ("i16", 2), ("pcm", 1), ("inter", 5)],
+             "B": [("skip", 4), ("direct", 3), ("i4", 2), ("i16", 2), ("pcm", 1), ("inter", 5)]}[stype]
+    k = rng.choices([a for a, _ in kinds], [b for _, b in kinds])[0]
+    m = dict(k=k, cpred=0, modes=None, cbp_l=0, cbp_c=0, qpd=0, mbt=None)
+    off = {"I": 0, "P": 5, "B": 23}[stype]
+    if k == "i4":
+        m["mbt"] = off
+        m["modes"] = "".join("p" if rng.random() < 0.5 else str(rng.randrange(8)) for _ in range(16))
+        m["cpred"] = rng.randrange(4)
+        m["cbp_l"], m["cbp_c"] = rand_cbp(rng)
+        m["qpd"] = rand_qpd(rng)
+    elif k == "i16":
+        mode, chroma, luma = rng.randrange(4), rng.randrange(3), rng.randrange(2)
+        m["mbt"] = off + 1 + mode + 4 * chroma + 12 * luma
+        m["cpred"] = rng.randrange(4)
+        m["cbp_l"], m["cbp_c"] = 15 * luma, chroma
+        m["qpd"] = rand_qpd(rng)
+    elif k == "pcm":
+        m["mbt"] = off + 25
+        m["samples"] = bytes(rng.randrange(256) for _ in range(384))
+    elif k == "direct":
+        m["mbt"] = 0
+        m["cbp_l"], m["cbp_c"] = rand_cbp(rng)
+        m["qpd"] = rand_qpd(rng)
+    elif k == "inter":
+        m["mbt"] = rng.randrange(3) if stype == "P" else rng.randrange(1, 22)
+        m["cbp_l"], m["cbp_c"] = rand_cbp(rng)
+        m["qpd"] = rand_qpd(rng)
+    if not (k == "i16" or m["cbp_l"] or m["cbp_c"]):
+        m["qpd"] = 0
+    return m
+
+
+def choose_intra(se, addr, m, off):
+    """Pick intra prediction modes that are LEGAL where the macroblock sits (ffmpeg refuses modes that need unavailable
+    neighbours), then express the 4x4 modes as prev_intra4x4_pred_mode_flag / rem_intra4x4_pred_mode against the predicted
+    mode (8.3.1.1), so the syntax elements in the dump are what an encoder would really send."""
+    W = se.W
+    A, B = se.nb(addr)
+    D = se.recs.get(addr - W - 1) if addr % W and addr - W - 1 >= se.fm else None
+    L, T, TL = A is not None, B is not None, D is not None
+    rng = se.rng
+    cl = [0] + ([1] if L else []) + ([2] if T else []) + ([3] if L and T and TL else [])
+    m["cpred"] = rng.choice(cl)
+    if m["k"] == "i16":
+        legal = [2] + ([0] if T else []) + ([1] if L else []) + ([3] if L and T and TL else [])
+        mode, chroma, luma = rng.choice(legal), rng.randrange(3), rng.randrange(2)
+        m["mbt"] = off + 1 + mode + 4 * chroma + 12 * luma
+        m["cbp_l"], m["cbp_c"] = 15 * luma, chroma
+        return
+    am, out = {}, ""
+    for idx in range(16):
+        x4 = (idx % 2) + 2 * ((idx // 4) % 2)
+        y4 = ((idx // 2) % 2) + 2 * (idx // 8)
+        top = y4 > 0 or T
+        left = x4 > 0 or L
+        tl = (x4 > 0 and y4 > 0) or (x4 == 0 and y4 > 0 and L) or (y4 == 0 and x4 > 0 and T) or (x4 == 0 and y4 == 0 and TL)
+        legal = [2] + ([0, 3, 7] if top else []) + ([1, 8] if left else []) + ([4, 5, 6] if top and left and tl else [])
+        act = rng.choice(legal)
+
+        def nbmode(n, xx, yy):
+            return 2 if n["k"] != "i4" else n["amodes"][(xx, yy)]
+        if x4 > 0:
+            ma = am[(x4 - 1, y4)]
+        else:
+            ma = None if A is None else nbmode(A, 3, y4)
+        if y4 > 0:
+            mb = am[(x4, y4 - 1)]
+        else:
+            mb = None if B is None else nbmode(B, x4, 3)
+        pred = 2 if (ma is None or mb is None) else min(ma, mb)
+        am[(x4, y4)] = act
+        out += "p" if act == pred else str(act if act < pred else act - 1)
+    m["amodes"], m["modes"] = am, out
+
+
+# ---------------------------------------------------------------- stream
+MBW, MBH = 11, 6
+
+
+def slice_header(w, stype, first_mb, qp, idc, pic, spatial):
+    w.ue(first_mb)
+    w.ue(stype)
+    w.ue(0)
+    w.raw(4, pic["frame_num"])
+    if pic["idr"]:
+        w.ue(0)
+    w.raw(6, pic["poc"])
+    if stype == 1:
+        w.raw(1, spatial)
+    if stype != 2:
+        w.raw(1, 0)
+        w.raw(1, 0)
+        if stype == 1:
+            w.raw(1, 0)
+    if pic["ref_idc"]:
+        w.raw(2, 0) if pic["idr"] else w.raw(1, 0)
+    if stype != 2:
+        w.ue(idc)
+    w.se(qp - 26)
+    w.ue(1)
+    while len(w.bits) % 8:
+        w.raw(1, 1)
+
+
+def build(seed):
+    """-> (annexb bytes, manifest dict)."""
+    rng = random.Random(seed)
+    sps = bitwriter.W()
+    sps.raw(8, 77), sps.raw(8, 0), sps.raw(8, 30)
+    sps.ue(0), sps.ue(0), sps.ue(0), sps.ue(2), sps.ue(2), sps.raw(1, 0)
+    sps.ue(MBW - 1), sps.ue(MBH - 1), sps.raw(1, 1), sps.raw(1, 1), sps.raw(1, 0), sps.raw(1, 0)
+    pps = bitwriter.W()
+    pps.ue(0), pps.ue(0), pps.raw(1, 1), pps.raw(1, 0), pps.ue(0), pps.ue(0), pps.ue(0), pps.raw(1, 0), pps.raw(2, 0)
+    pps.se(0), pps.se(0), pps.se(0), pps.raw(1, 1), pps.raw(1, 0), pps.raw(1, 0)
+    out = bytearray()
+    out += bitwriter.nal(0x67, sps.rbsp()) + bitwriter.nal(0x68, pps.rbsp())
+    pics = [dict(idr=True, ref_idc=3, frame_num=0, poc=0, t="I"),
+            dict(idr=False, ref_idc=2, frame_num=1, poc=8, t="P"),
+            dict(idr=False, ref_idc=2, frame_num=2, poc=16, t="P"),
+            dict(idr=False, ref_idc=0, frame_num=3, poc=12, t="B"),
+            dict(idr=False, ref_idc=0, frame_num=3, poc=10, t="B"),
+            dict(idr=False, ref_idc=2, frame_num=3, poc=24, t="P")]
+    n = MBW * MBH
+    exp_lines, pic_info, slice_no = [], [], 0
+    for pic in pics:
+        stype = {"I": 2, "P": 0, "B": 1}[pic["t"]]
+        cuts = sorted(rng.sample(range(1, n), rng.choice([0, 1, 2, 4])))
+        starts = [0] + cuts
+        ends = cuts + [n]
+        slices_info = []
+        for s0, s1 in zip(starts, ends):
+            qp = rng.choice([rng.randrange(0, 52), rng.randrange(18, 40)])
+            idc = rng.randrange(3)
+            spatial = rng.randrange(2)
+            w = bitwriter.W()
+            slice_header(w, stype, s0, qp, idc, pic, spatial)
+            hdr_bits = list(w.bits)
+            se = SliceEnc(pic["t"], qp, idc, MBW, s0, rng)
+            lines = [f"SLICE {slice_no} type={pic['t']} first_mb={s0}"]
+            mbs_info = []
+            for addr in range(s0, s1):
+                m = rand_mb(rng, pic["t"])
+                if m["k"] in ("i4", "i16"):
+                    choose_intra(se, addr, m, {"I": 0, "P": 5, "B": 23}[pic["t"]])
+                se.code_mb(addr, m, addr == s1 - 1)
+                lines.append(f"MB {slice_no} {addr} " + line_fields(m))
+                if m["k"] == "pcm":
+                    mbs_info.append(dict(kind="pcm", addr=addr, samples=m["samples"].hex()))
+            lines.append(f"END {slice_no} mbs={s1 - s0}")
+            bits = hdr_bits + se.e.bits
+            while len(bits) % 8:
+                bits.append(0)
+            rbsp = bytes(int("".join(map(str, bits[i:i + 8])), 2) for i in range(0, len(bits), 8))
+            out += bitwriter.nal((pic["ref_idc"] << 5) | (5 if pic["idr"] else 1), rbsp)
+            exp_lines += lines
+            slices_info.append(dict(mbs=mbs_info))
+            slice_no += 1
+        pic_info.append(slices_info)
+    manifest = dict(width_mbs=MBW, height_mbs=MBH, pictures=pic_info, expected="\n".join(exp_lines) + "\n",
+                    note="synthetic CABAC slices, expected dump from the construction")
+    return bytes(out), manifest

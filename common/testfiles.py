@@ -45,6 +45,13 @@ RECIPES = {
     "T9_temporal": ([], "-profile:v main -x264-params cabac=0:bframes=3:direct=temporal:weightb=1:b-pyramid=normal"),
     "T10_intra": ([], "-profile:v main -x264-params keyint=1:partitions=i4x4:no-deblock=1:cabac=1"),
     "T10_full": ([], "-profile:v main"),
+    # (8.2) CABAC streams without 8x8 transform (Main profile) for the macroblock-level syntax-element chapters (8.2 - 8.4):
+    # P only, B pyramid, four slices with QP changes, very high and very low QP.
+    "T10_p": ([], "-profile:v main -bf 0 -x264-params keyint=50"),
+    "T10_b": ([], "-profile:v main -x264-params bframes=3:b-pyramid=normal:keyint=40:weightb=1"),
+    "T10_slices_aq": ([], "-profile:v main -x264-params slices=4:keyint=25:aq-mode=2", ["-crf", "28"]),
+    "T10_qp46": ([], "-profile:v main -x264-params keyint=30", ["-qp", "46"]),
+    "T10_qp8": ([], "-profile:v main -x264-params keyint=12:bframes=2", ["-qp", "8"]),
     "T11_high": ([], "-profile:v high"),
     "T11_cqm": ([], "-profile:v high -x264-params cqm=jvt"),
     "T12": ([], "-profile:v high -x264-params interlaced=1:tff=1"),
