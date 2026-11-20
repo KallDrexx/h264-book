@@ -56,6 +56,14 @@ RECIPES = {
     "T10_ref": ([], "-profile:v main -x264-params ref=5:partitions=all:subme=7:bframes=3:b-pyramid=normal:keyint=40"),
     "T10_manyb": ([], "-profile:v main -x264-params bframes=8:b-adapt=0:ref=3:partitions=all:direct=temporal:keyint=60"),
     "T11_high": ([], "-profile:v high"),
+    # (8.5) High-profile variants (8x8 transform on by default): CAVLC, intra-only, P-only, several slices with QP changes.
+    "T11_cavlc": ([], "-profile:v high -x264-params cabac=0"),
+    "T11_intra": ([], "-profile:v high -x264-params keyint=1"),
+    "T11_intra_cavlc": ([], "-profile:v high -x264-params keyint=1:cabac=0"),
+    "T11_p": ([], "-profile:v high -bf 0 -x264-params keyint=50:ref=3"),
+    "T11_p_cavlc": ([], "-profile:v high -bf 0 -x264-params keyint=50:ref=3:cabac=0"),
+    "T11_slices_aq": ([], "-profile:v high -x264-params slices=4:keyint=25:aq-mode=2", ["-crf", "26"]),
+    "T11_slices_aq_cavlc": ([], "-profile:v high -x264-params slices=4:keyint=25:aq-mode=2:cabac=0", ["-crf", "26"]),
     "T11_cqm": ([], "-profile:v high -x264-params cqm=jvt"),
     "T12": ([], "-profile:v high -x264-params interlaced=1:tff=1"),
     # Convenience: a generic stream with every common feature (I/P/B, CAVLC, 2 s).
