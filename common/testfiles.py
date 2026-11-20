@@ -52,6 +52,9 @@ RECIPES = {
     "T10_slices_aq": ([], "-profile:v main -x264-params slices=4:keyint=25:aq-mode=2", ["-crf", "28"]),
     "T10_qp46": ([], "-profile:v main -x264-params keyint=30", ["-qp", "46"]),
     "T10_qp8": ([], "-profile:v main -x264-params keyint=12:bframes=2", ["-qp", "8"]),
+    # (8.4) inter syntax: several references and all partition sizes (ref_idx, sub_mb_type), a long B run with temporal direct (mvd, B sub types)
+    "T10_ref": ([], "-profile:v main -x264-params ref=5:partitions=all:subme=7:bframes=3:b-pyramid=normal:keyint=40"),
+    "T10_manyb": ([], "-profile:v main -x264-params bframes=8:b-adapt=0:ref=3:partitions=all:direct=temporal:keyint=60"),
     "T11_high": ([], "-profile:v high"),
     "T11_cqm": ([], "-profile:v high -x264-params cqm=jvt"),
     "T12": ([], "-profile:v high -x264-params interlaced=1:tff=1"),
