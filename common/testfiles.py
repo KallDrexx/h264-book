@@ -34,6 +34,8 @@ RECIPES = {
     "T2_cip": ([], "-profile:v baseline -x264-params keyint=1:partitions=i4x4:no-deblock=1:constrained-intra=1"),
     "T5": ([], "-profile:v baseline -bf 0 -x264-params keyint=50:partitions=none:ref=1:no-deblock=1"),
     "T6": ([], "-profile:v baseline -bf 0 -x264-params keyint=50:partitions=all:ref=4"),
+    # (7.4) T6 without deblocking: T6's options plus no-deblock=1.  Every partition size, several references, intra MBs in P.
+    "T6_nodeblock": ([], "-profile:v baseline -bf 0 -x264-params keyint=50:partitions=all:ref=4:no-deblock=1"),
     "T7": (["-vf", "fade=in:0:25"], "-profile:v main -x264-params cabac=0:bframes=0:weightp=2"),
     "T8": ([], "-profile:v main -x264-params cabac=0:bframes=2:b-pyramid=none:direct=none:weightb=0"),
     "T9_spatial": ([], "-profile:v main -x264-params cabac=0:bframes=3:direct=spatial:weightb=1:b-pyramid=normal"),
