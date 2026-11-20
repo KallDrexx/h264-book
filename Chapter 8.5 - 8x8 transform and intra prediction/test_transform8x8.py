@@ -37,7 +37,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SPOIL = os.path.join(HERE, "spoiler_reference")
 sys.path.insert(0, os.path.join(HERE, ".."))
 sys.path.insert(0, SPOIL)
-from common import ffref, testfiles, yuvcmp, yuvref  # noqa: E402
+from common import ffref, mbdump, testfiles, yuvcmp, yuvref  # noqa: E402
 from common.report import Report  # noqa: E402
 import stream8  # noqa: E402
 import parse8  # noqa: E402
@@ -132,9 +132,9 @@ def parse_dump(text, who):
                 if len(w) < 3 or not w[2].isdigit():
                     bad("MB needs a macroblock address")
                 d = kv(w[3:])
-                extra = [k for k in d if k not in FIELDS]
-                if extra:
-                    bad(f"unknown field {extra[0]}= (allowed: {', '.join(FIELDS)})")
+                err = mbdump.cabac_aliases(d)      # Phase 4 spellings accepted; other extra keys ignored (common/README.md)
+                if err:
+                    bad(err)
                 for f in FIELDS:
                     if f not in d:
                         bad(f"missing field {f}=")
@@ -474,6 +474,10 @@ def self_test():
         corrupt("coef_changed", lambda ls: ls.__setitem__(coefl[2], re.sub(r"luma8(\d):(\d+)=", r"luma8\1:\2=-", ls[coefl[2]], count=1)))
         corrupt("macroblock_missing", lambda ls: ls.pop(t8idx[5]))
         corrupt("last_slice_missing", lambda ls: [ls.pop() for _ in range(len(ls) - max(i for i, x in enumerate(ls) if x.startswith("SLICE")))])
+        lp = os.path.join(tmp, "long.txt")
+        open(lp, "w").write("\n".join(mbdump.long_spelling(ln) + " name=X bit=7" if ln.startswith("MB ") else ln for ln in lines) + "\n")
+        verdict(run_checks(base.path, dump=lp, quiet=True) == 0,
+                "the same dump in the Phase 4 key spellings (mb_type, t8x8, modes=-1,2,...) plus unknown extra keys -> PASS")
         bp = os.path.join(tmp, "malformed.txt")
         open(bp, "w").write("SLICE 0 type=I first_mb=0\nMB 0 0 mbt=0 t8=1 modes=pppp imode=2,2,2,2 cbp=0\nEND 0 mbs=1\n")
         verdict(run_checks(base.path, dump=bp, quiet=True) == 2, "a dump with a missing field -> exit code 2 (malformed), not FAIL")

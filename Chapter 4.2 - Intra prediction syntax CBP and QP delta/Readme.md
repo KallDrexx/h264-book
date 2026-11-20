@@ -155,7 +155,7 @@ Extend your Chapter 4.1 reader. Slice selection, `SLICE` and `END` lines, `I_PCM
 
 As in 4.1, a macroblock at which an error happens gets no `MB` line, and the slice ends with status `error`.
 
-**The stop rule (replaces 4.1's).** After step 4, look at the residual:
+**The stop rule (replaces 4.1's, in the same replaceable function; Chapter 4.3 swaps it for the block boundary file, 4.4 deletes it).** After step 4, look at the residual:
 
 - `I_NxN` with CBP 0: nothing to read. The macroblock is **finished**.
 - Otherwise it has coded blocks, listed in section 3.6. If an `I_PCM` macroblock has already been read in this slice, **stop** (the neighbour-based `nC` is Chapter 4.3). Else read the `coeff_token`s in order: every one must be the zero token (luma/chroma AC: bit `1`; chroma DC: bits `01`). The first one that is not means the block has coefficients: **stop**. If all are zero tokens, the macroblock is finished.

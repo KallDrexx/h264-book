@@ -179,9 +179,9 @@ No POC fields in the slice header at all. It is meant for streams without B pict
 
 Two non-reference pictures in a row are not allowed in this type (they would get the same POC). So a non-reference picture is followed by a reference picture (or an IDR picture), often with the same `frame_num`: that is the case where only `nal_ref_idc` separates them (section 3.3). x264 writes this type when it is run with no B pictures (T1, T4, T5 here).
 
-### 3.6 Frame_num gaps (note only)
+### 3.6 Frame_num gaps (note only; Chapter 7.6 implements them)
 
-`frame_num` normally goes up by one after each reference picture (and stays after a non-reference one). If the SPS has `gaps_in_frame_num_value_allowed_flag` = 1, a stream may skip numbers on purpose (temporal scalability, dropped frames); the decoder then invents "frame num gap" pictures that exist only in the reference buffer. That also advances the POC state for types 1 and 2. This book does not implement gaps (the test streams never use them); a decoder that meets a jump in `frame_num` that is not allowed should treat it as a lost picture. Phase 7 mentions it again with the reference buffer.
+`frame_num` normally goes up by one after each reference picture (and stays after a non-reference one). If the SPS has `gaps_in_frame_num_value_allowed_flag` = 1, a stream may skip numbers on purpose (temporal scalability, dropped frames); the decoder then invents "frame num gap" pictures that exist only in the reference buffer. That also advances the POC state for types 1 and 2. This chapter does not need them (its test streams never use gaps): Chapter 7.6 (section 3.8) implements the gap process together with the reference buffer, where the invented frames matter. A jump in `frame_num` that the SPS does not allow is a lost picture (error handling, Chapter 9.5).
 
 ### 3.7 MMCO 5: a second kind of reset
 

@@ -4,7 +4,7 @@
 > It holds a complete solution of this chapter: `ddec.py` is the reference decoder the harness compares you with, `direct_ref.py` the direct rules,
 > DistScaleFactor and implicit weights, `dmvpred_ref.py` the vector derivation, `dgen.py` the generator of the synthetic test streams; the other files are
 > earlier chapters' solutions. `common/inter_ref.py` (the shared reference parser) is a spoiler too. Everything you need is in this Readme.
-> Safe to read: `test_direct.py` (comparison, diagnosis, self-test) and `ffmv_helper.py` (asks libavcodec for the vectors ffmpeg exports).
+> Safe to read: `test_direct.py` (comparison, diagnosis, self-test) and `common/ffmv_helper.py` (asks libavcodec for the vectors ffmpeg exports).
 
 ## 1. Goal and the project
 

@@ -88,7 +88,7 @@ Points that matter:
 * **Order inside one entry**: luma flag, luma weight, luma offset, chroma flag, Cb weight, Cb offset, Cr weight, Cr offset. Weights and offsets are interleaved per
   plane, not "all weights, then all offsets".
 * The luma flag and the chroma flag are **independent**. An entry can weight chroma only (the x264 fade-out streams do the opposite: luma only).
-* `ChromaArrayType` is 1 for the 4:2:0 streams of this book. For monochrome (4:0:0, Phase 8) both chroma elements vanish: the table has only the luma part.
+* `ChromaArrayType` is 1 for the 4:2:0 streams of this book. For monochrome (4:0:0, outside this book's scope) both chroma elements vanish: the table has only the luma part.
 * There is no table entry for pictures, only for **list indices**. Entry `i` belongs to whatever `RefPicList0[i]` is *after* the modification of 7.6.
 * The number of entries is the **active** count, not the number of pictures in the DPB, and not `max_num_ref_frames`.
 

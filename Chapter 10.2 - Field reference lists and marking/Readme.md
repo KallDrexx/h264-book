@@ -1,5 +1,7 @@
 # Chapter 10.2 - Field reference lists and marking
 
+> **SPOILER WARNING - do not open `spoiler_reference/` until your own decoder passes.** `spoiler_reference/fdpb.py` (field reference lists and marking), `fpdec.py` (the whole P / B field decoder), `fbs.py` (field deblocking decisions) and `direct_ref.py` / `dmvpred_ref.py` (direct prediction with fields) are complete solutions of this chapter; `fpgen.py` is the stream generator, and the other files are copies of earlier chapters' solutions. `test_fieldrefs.py` is plumbing and safe to read.
+
 ## 1. Goal and the project
 
 Chapter 10.1 decoded intra-only field pictures. Real interlaced streams (broadcast 1080i, the PAFF conformance streams) code most pictures as **P and B fields** that predict from *other fields*. In this chapter you teach your decoder to do that:
@@ -149,12 +151,24 @@ Frame pictures use the same commands on frames (`PicNum` = `FrameNumWrap`) and c
 
 Everything of Chapter 7.9 holds with *field* data:
 
-* The **co-located picture** of a field is the **field `RefPicList1[0]`** itself (`mbAddrCol = CurrMbAddr`, same macroblock address, same 4x4 block; the vertical vector is used unscaled, `direct_8x8_inference_flag` is 1 because `frame_mbs_only_flag` is 0). It works if the co-located field was coded as a **field**; this chapter's harness only produces that case (and frame/frame).
-* **Mixed coding** (`RefPicList1[0]` is a field of a picture coded as a *frame*, or a frame picture whose `RefPicList1[0]` is a pair coded as fields) triggers the frame/field conversions of 8.4.1.2.1 (`Frm_To_Fld`: `mbAddrCol` from the macroblock pair row, vertical `mvCol / 2`, refIdx adjusted; `Fld_To_Frm`: vector * 2, field choice by POC distance). They are part of the standard but **not exercised by this harness** (the generator avoids direct prediction there); implement them when you test with conformance streams.
+* The **co-located picture** of a field is the **field `RefPicList1[0]`** itself when that field was coded as a field (`mbAddrCol = CurrMbAddr`, same macroblock address, same 4x4 block; the vertical vector is used unscaled). `direct_8x8_inference_flag` is 1 because `frame_mbs_only_flag` is 0, so each 8x8 quadrant (`x8`, `y8` = 0 or 1) reads one **corner** 4x4 block, column `3*x8`, row `3*y8`.
 * `refIdxL0 = (refIdxCol < 0) ? 0 : MapColToList0(refIdxCol)`: the **field** (store *and* parity) that the co-located block referenced is looked up in the current `RefPicList0`; the lowest index wins. `refIdxL1 = 0`.
 * `DistScaleFactor` uses the **POCs of fields**: `tb = POC(current field) - POC(pic0)`, `td = POC(pic1) - POC(pic0)` where `pic0` = `RefPicList0[refIdxL0]`, `pic1` = `RefPicList1[0]`, each a field with its own POC. Then the usual `tx`, `DistScaleFactor`, `mvL0 = (DSF * mvCol + 128) >> 8`, `mvL1 = mvL0 - mvCol`; long-term `pic0` or `td = 0` gives `mvL0 = mvCol`, `mvL1 = 0`.
 * `colZeroFlag` (spatial) needs `RefPicList1[0]` short-term, `refIdxCol = 0` and both components of `mvCol` in -1..1 (units of the field).
 * **Implicit weights** (`weighted_bipred_idc` 2) for a field: `currPicOrField`, `pic0`, `pic1` are the current field and the two **fields** the vectors refer to; `DistScaleFactor >> 2` gives `w1`, `w0 = 64 - w1`, with the fallback to 32/32 for `DiffPicOrderCnt(pic1, pic0) == 0`, a long-term reference, or `w1` outside -64..128. A *frame* picture uses the frame POCs (minimum of the two fields).
+
+**Mixed coding (8.4.1.2.1).** In a PAFF stream `RefPicList1[0]` may have been coded the other way. Then 8.4.1.2.1 (Tables 8-6 and 8-8) picks a different co-located macroblock and 4x4 row and sets `vertMvScale`. With `(mx, my)` the current macroblock's column and row (in the current picture):
+
+| current | `RefPicList1[0]` coded as | co-located picture | co-located MB (column `mx`, row) | 4x4 block (column `3*x8`, row) | `vertMvScale` |
+|---|---|---|---|---|---|
+| field | field | the field itself | `my` | `3*y8` | One_To_One |
+| field | frame | the **frame** containing it | frame row `2*my + y8` (`mbAddrCol1`) | `2*y8` (`yM = (2*yCol) % 16`) | Frm_To_Fld |
+| frame | fields (a pair) | the field of the pair **closer in POC** | field row `my / 2` (`mbAddrCol4`) | `2*(my % 2) + y8` (`yM = 8*(my % 2) + 4*y8`) | Fld_To_Frm |
+| frame | frame | the frame | `my` | `3*y8` | One_To_One |
+
+"Closer in POC": the top field if `|POC(top) - POC(cur)| < |POC(bottom) - POC(cur)|`, otherwise (ties too) the bottom field; `POC(cur)` is the current frame's POC (minimum of its two fields). This is exactly Chapter 10.4's MBAFF table (3.4) with whole pictures in place of macroblock pairs.
+
+*Temporal direct* then converts the co-located data before the usual steps: `Frm_To_Fld`: `mvCol.y = mvCol.y / 2` (division **toward zero**, so -3 gives -1) and `refIdxL0` refers to the **field of the frame `refPicCol` with the current picture's parity** (`refPicCol` = the frame the co-located block referenced); `Fld_To_Frm`: `mvCol.y = mvCol.y * 2` and `refIdxL0` refers to the **frame containing the field `refPicCol`**. In both cases `refIdxL0` is the lowest index of the current `RefPicList0` that holds that picture, `refIdxL1 = 0`, and the POCs for `DistScaleFactor` are those of the current picture's kind (fields for a field picture, frames for a frame picture). *Spatial direct* uses `refIdxCol` and `mvCol` **as stored** (no scaling) for `colZeroFlag`. The case `d_mixed` exercises all four rows of the table with both direct modes.
 
 ### 3.10 Deblocking of P and B field pictures (8.7.2.1)
 
@@ -172,17 +186,17 @@ The standard is the truth for your decoder; these corner cases are avoided in th
 
 ## 4. The project: exactly what to build
 
-Starting from your Chapter 7 / 9 / 10.1 decoder:
+Starting from your Phase 7 / Phase 9 / Chapter 10.1 decoder:
 
 1. **Slice header** for P/B in fields: `field_pic_flag`, `bottom_field_flag`, `num_ref_idx_active` up to 32, list modification with the field numbers, `dec_ref_pic_marking` (MMCO).
 2. **DPB with per-field marking** (3.1) and the **sliding window / MMCO** of 3.7, including the second-field rules.
 3. **Initial lists** of P fields, B fields (3.3, 3.4), P/B frames in a field-capable DPB; truncation, modification (3.6).
-4. **Prediction** from fields (3.8): field reference planes, clamping, chroma offset; direct and implicit weights with field POCs (3.9). Reuse the motion vector prediction, interpolation and residual code of Chapter 7 unchanged.
+4. **Prediction** from fields (3.8): field reference planes, clamping, chroma offset; direct and implicit weights with field POCs (3.9). Reuse the motion vector prediction, interpolation and residual code of Phase 7 unchanged.
 5. **Deblocking** with the field rules (3.10).
 6. **Output**: pairing, POC, bumping and frame interleaving from 10.1.
 7. Write the **dump** (5.1) and the **yuv** (5.2).
 
-Verify: all suite cases pass (`--check`); then the PAFF conformance streams with P and B fields and a real 1080i recording decode byte-identical to their reference yuv (not available offline; use `--stream` for an ffmpeg comparison, remembering the deviations of 3.11 and the frame/field direct conversions of 3.9).
+Verify: all suite cases pass (`--check`); then the PAFF conformance streams with P and B fields and a real 1080i recording decode byte-identical to their reference yuv (not available offline; use `--stream` for an ffmpeg comparison, remembering the deviations of 3.11).
 
 ## 5. Harness input format
 
@@ -231,6 +245,7 @@ Every stream: Main profile, `frame_mbs_only_flag = 0`, `direct_8x8_inference_fla
 | `slide`, `slide1` | sliding window with second fields, `max_num_ref_frames` 2 and 1 |
 | `b_fields`, `b_mixed`, `b_tail`, `b_mod` | B field lists, POC order, list-1 swap (only past references), modification |
 | `d_spatial`, `d_temporal` | spatial / temporal direct with field co-located blocks |
+| `d_mixed` | direct with a co-located picture coded the other way (field picture / frame-coded `RefPicList1[0]` and frame picture / field pair): `Frm_To_Fld`, `Fld_To_Frm` (3.9) |
 | `w_implicit`, `w_temporal` | implicit weights with field POCs, large POC steps; with temporal direct |
 | `b_spread`, `d_spread`, `b_equal` | the two fields of a frame with POCs far apart or **equal** (frames interleave in POC): POC of an entry = minimum, `<=` for list 0, current POC = the field's own; implicit weights / temporal direct on top |
 | `lt_fields`, `lt_pairs`, `lt_b`, `lt_direct` | MMCO 1-4 on fields, long-term fields in P/B lists, `long_term_pic_num` commands |
@@ -248,12 +263,12 @@ python3 test_fieldrefs.py --check DIR OUTDIR [--only a,b] [--no-dump] [--no-yuv]
 python3 test_fieldrefs.py --suite DIR --reader './mydec {stream} {dump} {yuv}'
 python3 test_fieldrefs.py --truth DIR                          # DIR/<case>.expected.dump / .expected.yuv to diff yourself
 python3 test_fieldrefs.py --stream any.264 --yuv mine.yuv      # pixels of any stream against ffmpeg
-python3 test_fieldrefs.py --self-test                          # about 6 minutes (CPU bound, pure Python)
+python3 test_fieldrefs.py --self-test                          # about 7 minutes (CPU bound, pure Python)
 ```
 
 * Exit 0 pass, 1 fail, 2 missing / malformed input. Streams are determined by fixed seeds; `--check` regenerates them and refuses a stale `DIR/<case>.264`. The first run builds the streams (a minute, cached in `.cache/ch10_2`).
 * Dump failures print case, picture, slice, key, expected and actual, and for lists the first differing index. Pixel failures name the output frame, the pictures that made it, the first differing plane / macroblock / sample and which field line it is on.
-* `--self-test` checks the harness: the reference decoder equals ffmpeg frame for frame on every case whose truth is ffmpeg; its own output passes; 8 corruptions of a reader output (list entries, marking, missing lines, samples, frame order and count) fail; and **every one of 38 wrong rules** of the reference decoder (parity alternation start, missing first field of the current frame, `FrameNumWrap`, `PicNum` / `LongTermPicNum` parity, `CurrPicNum` / `MaxPicNum`, sliding window counting fields or running for second fields, MMCO 1/2/3/4/6 field rules, B-list POC choices, `<=` vs `<`, the list-1 swap, chroma vector offset, co-located field choice, `MapColToList0` by frame, implicit-weight POC choice, bS 3 / vector limit / field-reference identity in deblocking, output order, ...) changes the dump or the pictures of at least one case; the output names the case and channel for each.
+* `--self-test` checks the harness: the reference decoder equals ffmpeg frame for frame on every case whose truth is ffmpeg; its own output passes; 8 corruptions of a reader output (list entries, marking, missing lines, samples, frame order and count) fail; and **every one of 42 wrong rules** of the reference decoder (parity alternation start, missing first field of the current frame, `FrameNumWrap`, `PicNum` / `LongTermPicNum` parity, `CurrPicNum` / `MaxPicNum`, sliding window counting fields or running for second fields, MMCO 1/2/3/4/6 field rules, B-list POC choices, `<=` vs `<`, the list-1 swap, chroma vector offset, co-located field choice, the frame / field co-located conversions (row, vertical scaling, field choice), `MapColToList0` by frame, implicit-weight POC choice, bS 3 / vector limit / field-reference identity in deblocking, output order, ...) changes the dump or the pictures of at least one case; the output names the case and channel for each.
 
 ## 7. Reading failures
 

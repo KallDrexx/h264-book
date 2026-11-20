@@ -121,11 +121,11 @@ Two details parsing never sees but the next chapters do: (a) the rows of the lef
 * **Field macroblocks use field coding for the residual**: field scan (zig-zag replaced) and, in CABAC, the field context offsets for `significant_coeff_flag` / `last_significant_coeff_flag` (277 / 338 / 436 / 451, and the field column of the 8x8 `significant_coeff_flag` table) exactly as Chapter 10.1. `coeff_abs_level_minus1` contexts are the same. For the **dump** nothing changes: coefficients are reported by scan position.
 * **QP prediction** is the *previous macroblock in decoding order* of the slice (`QP_Y,PRED`), i.e. for a top macroblock the bottom macroblock of the previous pair, for a bottom macroblock its top macroblock (skipped macroblocks keep the QP). The CABAC `mb_qp_delta` context uses the same "previous macroblock" rule (it is not a spatial neighbour).
 * **Skipped macroblocks in MBAFF**: `P_Skip` / `B_Skip` motion is derived (Chapter 10.4) with the pair's final field flag, so a skipped top macroblock waits for the bottom's flag (3.2). For parsing a skipped macroblock is: QP unchanged, all `coded_block_flag` 0, `total_coeff` 0, `mb_type` skip (for B also "direct" for the `mb_type` and `ref_idx` contexts).
-* `transform_size_8x8_flag`, `I_PCM` (CABAC: terminate bin, byte alignment, 384 bytes, restart the engine; the MB counts as `cbp` 47, `coded_block_flag` 1 everywhere, `nC` 16), `mb_skip_run` + `end_of_slice` conditions are as in Chapters 7 and 8.
+* `transform_size_8x8_flag`, `I_PCM` (CABAC: terminate bin, byte alignment, 384 bytes, restart the engine; the MB counts as `cbp` 47, `coded_block_flag` 1 everywhere, `nC` 16), `mb_skip_run` + `end_of_slice` conditions are as in Phases 7 and 8.
 
 ## 4. The project: exactly what to build
 
-Starting from your CAVLC and CABAC parsers for I, P and B slices with transform 8x8 (Chapters 4, 7, 8):
+Starting from your CAVLC and CABAC parsers for I, P and B slices with transform 8x8 (Phases 4, 7, 8):
 
 1. **Slice start**: `first_mb_in_slice * 2`, `PicSizeInMbs`; pair loop.
 2. **The neighbour function** of 3.3 with the pair availability of 3.1, working for luma and chroma sizes. Route every neighbour lookup of your CAVLC and CABAC code through it (3.4); keep per-macroblock records with the arrays you need (`total_coeff`, `coded_block_flag`, `mvd`, `ref_idx`, intra modes, `cbp`, `qp`, flags) and a *per-pair* field flag. Test the function alone first (section 5.3).
@@ -139,7 +139,7 @@ Verify (the Summary's milestone, with ffmpeg instead of JM): every slice ends ex
 
 ### 5.1 The dump: one file per stream
 
-Plain text. Every line starts with a keyword; blank lines and lines starting with `#` are ignored; `name=value` words are separated by single spaces and may come in any order, extra words are ignored. Numbers are decimal. `-` means "not present / not defined".
+Plain text. Every line starts with a keyword; blank lines and lines starting with `#` are ignored; `name=value` words are separated by single spaces and may come in any order, extra words are ignored. Numbers are decimal. `-` means "not present / not defined". These are the book-wide dump rules of `common/README.md` ("Macroblock dump grammar"); the long key spellings of Phases 4 and 7 (`mb_type`, `chroma_pred`, `qp_delta`, `t8x8`, `modes=-1,...`) are accepted too.
 
 ```
 SLICE <i> type=<I|P|B> first_mb=<n>

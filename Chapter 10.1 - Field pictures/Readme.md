@@ -30,7 +30,7 @@ x264 cannot help you here: its `--interlaced` mode is MBAFF (`field_pic_flag` is
 * `FrameHeightInMbs = (2 - frame_mbs_only_flag) * PicHeightInMapUnits` (7-18). With `frame_mbs_only_flag = 0` a "map unit" is a pair of macroblock rows.
 * **Slice header** order (relevant part): `first_mb_in_slice, slice_type, pps_id, frame_num, [field_pic_flag, [bottom_field_flag]], [idr_pic_id], POC fields, ...`. `field_pic_flag` is read only if `frame_mbs_only_flag = 0`; `bottom_field_flag` only if `field_pic_flag = 1`. Both default to 0 when absent. A *picture* is a frame (`field_pic_flag = 0`), a top field (1, 0) or a bottom field (1, 1). All slices of one picture carry the same values.
 * **DPB and bumping** (Chapter 9.1): decoded pictures wait in the decoded picture buffer; when it is full, or an IDR flushes it, the one with the smallest POC is output, so output is in ascending POC within each IDR period. With fields the DPB is made of *frame stores*: a store holds one frame, one field, or the two fields of one frame, and output takes a whole store, so a field pair is output once, as one frame.
-* **Output** is the cropped 8-bit yuv420p frame (Chapter 9.2/9.3): Y plane, then Cb, then Cr, no padding.
+* **Output** is the cropped 8-bit yuv420p frame (Chapters 5.1 and 9.1): Y plane, then Cb, then Cr, no padding.
 
 ### 3.2 Sizes and addresses
 
@@ -152,12 +152,12 @@ A field that never gets a partner is a **non-paired field** (a "lone" field): a 
 
 ## 4. The project: exactly what to build
 
-Starting from your intra decoder (Chapters 5 and 8; CAVLC + CABAC, 4x4/8x8/16x16, deblocking):
+Starting from your intra decoder (Phases 5 and 8; CAVLC + CABAC, 4x4/8x8/16x16, deblocking):
 
 1. **Headers.** Parse `frame_mbs_only_flag` / `mb_adaptive_frame_field_flag` (reject `frame_mbs_only_flag = 0` with `mb_adaptive_frame_field_flag = 1` and `field_pic_flag = 0` pictures; they are MBAFF), and in the slice header `field_pic_flag` / `bottom_field_flag`. Derive `PicHeightInMbs`, `PicSizeInMbs`; bound `first_mb_in_slice` by them.
 2. **Picture boundaries** with the full rule of 3.6.
 3. **POC** of frames and fields for types 0, 1, 2 (3.7).
-4. **Pairing** into frame stores and **output** per store in POC order within each IDR period (your Chapter 9 bumping, applied to stores). Lone fields: write a frame whose present field is decoded and whose other lines are anything you like.
+4. **Pairing** into frame stores and **output** per store in POC order within each IDR period (your Chapter 9.1 bumping, applied to stores). Lone fields: write a frame whose present field is decoded and whose other lines are anything you like.
 5. **Decode a field as a picture** of `PicHeightInMbs` rows using a field-sized working picture (or stride doubling), with the **field scan** and the **field CABAC contexts**; deblock the field with bS 3 on horizontal intra MB edges; interleave into the frame store.
 6. **Crop** with `CropUnitY = 4` and write yuv420p.
 7. Write the **dump** (section 5.1).

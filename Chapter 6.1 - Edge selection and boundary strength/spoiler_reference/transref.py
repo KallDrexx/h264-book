@@ -36,8 +36,15 @@ def level_scale(m, i, j):
     return 16 * norm_adjust(m, i, j)
 
 
+MUTANT = None       # 5.5 harness self-test: deliberately wrong chroma QP rules
+
+
 def chroma_qp(qpy, offset):
     qpi = max(0, min(51, qpy + offset))
+    if MUTANT == "cqp_noclip":
+        qpi = qpy + offset
+    elif MUTANT == "cqp_no_table":
+        return qpi
     return qpi if qpi < 30 else QPC[qpi - 30]
 
 

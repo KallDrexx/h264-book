@@ -13,8 +13,9 @@ parsing, for pictures that are frames or FIELDS:
   * interleaving into the frame store, output order (ascending POC inside each IDR / MMCO-5 period).
 Its output is (a) the dump lines of Readme section 5 and (b) the frames.  ffmpeg decodes the same streams with identical pixels
 (test_fieldrefs.py checks this for every case), which validates the generator's bitstream and this decoder at the same time.
-Direct prediction only works when the co-located picture is coded like the current one (field <-> field, frame <-> frame): the
-generator avoids the other cases (the frame <-> field conversions of 8.4.1.2.1 are described in the Readme but not exercised).
+Direct prediction with a co-located picture coded the other way (a field whose RefPicList1[0] belongs to a frame-coded picture, or
+a frame whose RefPicList1[0] is a pair coded as fields) goes through the frame / field conversions of 8.4.1.2.1 (mixed_col below:
+Frm_To_Fld and Fld_To_Frm, Readme 3.9); the case d_mixed exercises them.
 MUTANT switches ONE deliberately wrong rule on (MUTANTS here, fdpb.MUTANTS, fbs.MUTANTS).
 """
 import os
@@ -44,6 +45,10 @@ MUTANTS = {
     "map_col_by_frame": "MapColToList0 identifies the co-located reference by its frame only (the field's parity is ignored)",
     "pic_poc_max": "the POC of a frame picture / pair is the larger of the two field POCs",
     "output_decode_order": "frames are output in decoding order",
+    "mixed_no_vscale": "frame / field co-located conversion: the vertical mvCol is used unscaled (no / 2 for Frm_To_Fld, no * 2 for Fld_To_Frm)",
+    "mixed_vscale_floor": "Frm_To_Fld halves the vertical mvCol with an arithmetic shift (>> 1, rounds toward minus infinity) instead of / 2",
+    "mixed_corner_row": "frame / field co-located conversion: the corner 4x4 row of the mapped macroblock is read (instead of the yM row)",
+    "mixed_far_parity": "frame picture, co-located pair coded as fields: the field FARTHER in POC from the current frame is used",
 }
 ALL_MUTANTS = {}
 
@@ -361,6 +366,8 @@ class Decoder:
                     mot1 = s1.mot.get("B" if L1[0].par == "T" else "T", mot1)
                 elif MUTANT == "col_top_field":
                     mot1 = s1.mot.get("T", mot1)
+        if stype == 1 and L1 and L1[0] is not None and mot1 is None:
+            mot1 = self.mixed_col(L1[0], cur, par, wm=self.wm, hm=pst.hm, temporal=not sl["spatial"])
         if stype in (0, 1):
             spatial = bool(sl["spatial"])
             sctx = direct_ref.SliceCtx(cur_poc, p0_, o0_, t0_, p1_, o1_, t1_, mot1, spatial, True, sc["bipred_idc"] == 2)
@@ -425,6 +432,55 @@ class Decoder:
                 for q in range(2):
                     for k in range(8):
                         planes[1 + q][8 * my + k][8 * mx:8 * mx + 8] = pred[1 + q][k]
+
+    def mixed_col(self, r1, cur, par, wm, hm, temporal):
+        """Co-located data when RefPicList1[0] was coded the other way (8.4.1.2.1, Table 8-6 / 8-8, direct_8x8_inference_flag = 1):
+        a PicState in the CURRENT picture's geometry whose corner 4x4 blocks hold the co-located block of each 8x8 quadrant,
+        converted for temporal direct (vertical mvCol / 2 or * 2, the referenced picture as field of the current parity or as
+        frame).  Spatial direct uses refIdxCol and mvCol as stored.  None when the data does not exist."""
+        s1 = self.stores[r1.sid]
+        to_fld = par != "F"                      # current field, co-located frame (Frm_To_Fld) / current frame, co-located fields
+        if to_fld:
+            src = s1.mot.get("F") if s1.coded == "F" else None
+        else:
+            if s1.coded != "P" or s1.poc["T"] is None or s1.poc["B"] is None:
+                return None
+            ta, ba = abs(s1.poc["T"] - cur["poc"]), abs(s1.poc["B"] - cur["poc"])
+            colpar = "T" if ta < ba else "B"
+            if MUTANT == "mixed_far_parity":
+                colpar = "B" if colpar == "T" else "T"
+            src = s1.mot.get(colpar)
+        if src is None:
+            return None
+        out = dmvpred_ref.PicState(wm, hm)
+        out.slice_lists = dict(src.slice_lists)
+        for my in range(hm):
+            for mx in range(wm):
+                for y8 in range(2):
+                    for x8 in range(2):
+                        if MUTANT == "mixed_corner_row":
+                            row = 3 * y8
+                            smy = 2 * my + y8 if to_fld else my // 2
+                        elif to_fld:             # mbAddrCol1: frame MB of row 2 * my + y8, yM = (2 * yCol) % 16 -> 4x4 row 2 * y8
+                            smy, row = 2 * my + y8, 2 * y8
+                        else:                    # mbAddrCol4: field MB of row my / 2, yM = 8 * (my % 2) + 4 * y8 -> 4x4 row 2*(my%2)+y8
+                            smy, row = my // 2, 2 * (my % 2) + y8
+                        si = src.idx(16 * mx + 12 * x8, 16 * smy + 4 * row)
+                        di = out.idx(16 * mx + 12 * x8, 16 * my + 12 * y8)
+                        out.sl[di] = src.sl[si]
+                        for lst in (0, 1):
+                            out.ref[lst][di] = src.ref[lst][si]
+                            out.mvx[lst][di] = src.mvx[lst][si]
+                            mvy, rp = src.mvy[lst][si], src.rpid[lst][si]
+                            if temporal and MUTANT != "mixed_no_vscale":
+                                if to_fld:
+                                    mvy = mvy >> 1 if MUTANT == "mixed_vscale_floor" else direct_ref.tdiv(mvy, 2)
+                                else:
+                                    mvy = mvy * 2
+                            if rp is not None:   # the field of the referenced frame with the current parity / the frame of the field
+                                rp = (rp[0], par) if to_fld else (rp[0], "F")
+                            out.mvy[lst][di], out.rpid[lst][di] = mvy, rp
+        return out
 
     def _fill_by_frame(self, pst, res, sctx, p1_):
         orig = direct_ref.map_col_to_list0

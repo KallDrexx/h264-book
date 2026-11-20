@@ -18,6 +18,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "spoiler_reference"))
 from common.bitwriter import W, nal  # noqa: E402
 from common import cavlc_tables as T  # noqa: E402
 import transref  # noqa: E402

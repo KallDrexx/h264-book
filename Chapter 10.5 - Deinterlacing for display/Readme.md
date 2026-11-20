@@ -194,7 +194,7 @@ python3 test_deinterlace.py --self-test                               # the harn
 | `ps_cycle.264` | the SEI values rewritten to cycle through 0..8 and back: single fields, repeats, doubling, tripling, mixed in one stream |
 | `pd32.264`, `pd_euro.264`, `pd_double.264`, `pd_triple.264` | x264 `--pulldown` 32 / euro / double / triple: progressive stream, `pic_struct` 3..8 |
 | `prog.ts`, `prog_ps.264` | progressive, without SEI (all `F`) and with `pic_struct` 0 |
-| `paff_*.264` (9) | the PAFF streams of Chapter 10.1 (field pairs in both orders, frames mixed in, POC types 0/1/2, equal POCs, non-reference pairs, output reordering, cropping): Rule A steps 1, 3, 4 |
+| `paff_*.264` (9) | the PAFF streams of Chapter 10.1 (field pairs in both orders, frames mixed in, POC types 0/1/2, equal POCs, non-reference pairs, output reordering, cropping): Rule A steps 1, 3, 4. They are built by Chapter 10.1's `spoiler_reference/fgen.py`, which the harness loads from that chapter's folder (not a copy), so it needs the book's full checkout |
 
 ## 7. Reading failures
 

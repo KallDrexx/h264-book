@@ -2,7 +2,7 @@
 
 > **SPOILER WARNING - do not open `spoiler_reference/` until your own predictor passes.**
 > `spoiler_reference/mvpred_ref.py` is a complete solution of this chapter and `spoiler_reference/mvgen.py` (the generator of the synthetic
-> streams) contains the same predictor. `test_mvpred.py` and `ffmv_helper.py` are plumbing (reference checks, file formats, comparison) and are safe to read.
+> streams) contains the same predictor. `test_mvpred.py` and `common/ffmv_helper.py` are plumbing (reference checks, file formats, comparison) and are safe to read.
 
 ## 1. Goal and the project
 
@@ -297,7 +297,7 @@ neighbours, 3 slices) and `x264_mv_intra_heavy`; synthetic streams `synth_mv`, `
 **What the reference is checked against (so you can trust the expected dump):**
 
 1. **ffmpeg's vectors.** libavcodec exports the vectors it decodes (`-flags2 +export_mvs`, `AVMotionVector` side data), but no command-line tool prints the values (`showinfo` prints only a byte count and `ffprobe` only
-   the side data's name), and a C helper would need libavcodec's development headers. `ffmv_helper.py` therefore loads the shared library with
+   the side data's name), and a C helper would need libavcodec's development headers. `common/ffmv_helper.py` (shared with Chapters 7.8, 7.9 and 10.4) therefore loads the shared library with
    Python's `ctypes`, decodes the stream (parser + decoder, one thread) and writes every exported vector (block size, block centre, vector, always in quarter-sample units). It runs as a subprocess with a
    timeout so a crash cannot kill the harness. ffmpeg exports one vector per macroblock partition (skip and 16x16: one; 16x8 and 8x16: two) and, for P_8x8, one per 8x8 block - the vector of that block's first 4x4 sub-block,
    so sub-partition vectors beyond the first are not visible there. The reference's (size, position, vector) multiset per picture must equal ffmpeg's exactly. If the library cannot be loaded the check is skipped with a

@@ -81,7 +81,7 @@ Example: bins `1 1 0 1 0 1` give bits = 5, `mb_type` 8 (B_L0_L1_16x8). The dump 
 
 ### 3.5 I_PCM
 
-After the I_PCM terminate bin = 1 (in I, P or B slices) come `pcm_alignment_zero_bit`s up to the next byte boundary (position counted as in 8.1), then 384 bytes of samples (256 luma, 64 + 64 chroma; 8-bit 4:2:0), then the engine is initialised again (range 510, 9 bits) at the next bit. Context states are untouched. An I_PCM macroblock has no `cbp`, no `mb_qp_delta`; for QP prediction the macroblock keeps the previous QP_Y (dump `qp` repeats it; ffmpeg's QP map shows 0 there because that is the value deblocking uses, Chapter 6).
+After the I_PCM terminate bin = 1 (in I, P or B slices) come `pcm_alignment_zero_bit`s up to the next byte boundary (position counted as in 8.1), then 384 bytes of samples (256 luma, 64 + 64 chroma; 8-bit 4:2:0), then the engine is initialised again (range 510, 9 bits) at the next bit. Context states are untouched. An I_PCM macroblock has no `cbp`, no `mb_qp_delta`; for QP prediction the macroblock keeps the previous QP_Y (dump `qp` repeats it; ffmpeg's QP map shows 0 there because that is the value deblocking uses, Phase 6).
 
 ### 3.6 Intra prediction syntax
 
@@ -160,7 +160,7 @@ MB <slice> <addr> mbt=<..> cpred=<..> modes=<..> cbp=<..> qpd=<..> qp=<..> eos=<
 END <slice> mbs=<number of MB lines>
 ```
 
-Field order is fixed; all seven keys must be present on every MB line (unknown extra keys are errors). Macroblocks appear in decoding order, including skipped ones; the last one has `eos=1`.
+All seven keys must be present on every MB line, in any order; extra keys are ignored. These are the short key names of the CABAC chapters; the harness also accepts Chapter 4.2's long spellings (`mb_type`, `chroma_pred`, `qp_delta`, and `modes` as `-1,1,0,...` or `i16:<m>`), so your Phase 4 printing code can be reused (`common/README.md`, "Macroblock dump grammar"). Macroblocks appear in decoding order, including skipped ones; the last one has `eos=1`.
 
 | Field | Value |
 |---|---|

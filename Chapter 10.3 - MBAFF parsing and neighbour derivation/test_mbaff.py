@@ -25,7 +25,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(HERE, "spoiler_reference"))
-from common import cavlc_ref as CR, ffref, inter_ref as IR, testfiles  # noqa: E402
+from common import cavlc_ref as CR, ffref, inter_ref as IR, mbdump, testfiles  # noqa: E402
 from common.report import Report  # noqa: E402
 import mbaff as M  # noqa: E402
 import mbgen  # noqa: E402
@@ -250,6 +250,9 @@ def parse_dump_text(text, what):
             elif w[0] == "MB":
                 if cur is None or int(w[1]) != cur["idx"]:
                     die(f"{what}:{no}: MB line outside its SLICE")
+                err = mbdump.cabac_aliases(kv)      # Phase 4 spellings accepted (common/README.md)
+                if err:
+                    die(f"{what}:{no}: {err}")
                 d = dict(addr=int(w[2]), **kv)
                 cur["mbs"].append(d)
             elif w[0] == "END":
@@ -552,6 +555,10 @@ def self_test(args):
         print("  good reader output:", "PASS" if not rep.failures else "FAIL")
         ok &= not rep.failures
         lines = truths[n0].splitlines()
+        long_text = "\n".join(mbdump.long_spelling(l) + " name=X" if l.startswith("MB ") else l for l in lines)
+        rep = compare(exp, parse_dump_text(long_text, "long spelling"), Report("long"))
+        print("  same output in the Phase 4 key spellings plus an unknown key:", "PASS" if not rep.failures else "FAIL")
+        ok &= not rep.failures
         for what, mod in (("a flipped field flag", lambda L: [l.replace("fld=0", "fld=1", 1) if l.startswith("MB 0 3 ") else l for l in L]),
                           ("a dropped MB line", lambda L: [l for l in L if not l.startswith("MB 0 5 ")]),
                           ("a wrong QP", lambda L: [l.replace(" qp=", " qp=9", 1) if l.startswith("MB 0 4 ") else l for l in L])):

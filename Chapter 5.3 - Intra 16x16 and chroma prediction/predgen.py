@@ -17,6 +17,7 @@ from collections import Counter
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, ".."))
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(HERE, "spoiler_reference"))
 from common.bitwriter import W, nal  # noqa: E402
 from common import cavlc_tables as T  # noqa: E402
 import transref  # noqa: E402

@@ -1,5 +1,7 @@
 # Chapter 8.6 - Scaling matrices
 
+> **SPOILER WARNING - do not open `spoiler_reference/` until your own decoder passes.** `spoiler_reference/scaling_ref.py` (the resolution of the matrix syntax and the scaled dequantisation) and `spoiler_reference/hdec.py` (the whole High-profile decoder with matrices) are complete solutions of this chapter; the other files there are copies of earlier chapters' solutions (8.5 and before). `test_scaling.py` and `scalegen.py` (the synthetic stream generator) are plumbing and safe to read.
+
 ## 1. Goal and the project
 
 Until now every coefficient was dequantised with a flat weight of 16, so all frequencies were scaled alike. High profile lets the encoder send **scaling matrices**: tables that make some frequencies coarser than others (a typical matrix is small for low frequencies and large for high ones, because the eye notices high-frequency error less).

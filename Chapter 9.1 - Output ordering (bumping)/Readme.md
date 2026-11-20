@@ -1,5 +1,7 @@
 # Chapter 9.1 - Output ordering (bumping)
 
+> **SPOILER WARNING - do not open `spoiler_reference/` until your own bumping passes.** `spoiler_reference/bumping_ref.py` is a complete solution of this chapter (the C.4 bumping process), and `bump_reader.py` / `frontend.py` a complete reader built on it; `streamgen.py` and `cases.py` build the test suite. `test_bumping.py` is plumbing and safe to read.
+
 ## 1. Goal and the project
 
 A decoder produces pictures in *decoding order*, but a viewer must see them in *output order*. Up to now you probably sorted the pictures of each IDR period by picture order count (POC) once the whole file was decoded. That shortcut needs the entire file in memory and can never run live. This chapter replaces it with what the standard really specifies: a small buffer, the **bumping process** of Annex C.4, that decides *when* each picture leaves the decoder and in what order. You build it as a stand-alone module and plug it into your decoder, so that frames come out one at a time, in order, cropped, as soon as the standard allows.
@@ -34,7 +36,7 @@ B-frames and pyramids mean that a picture decoded early may have to be shown lat
 
 Examples: 352x288 (22x18 = 396 MBs), level 1.3: 2376 / 396 = **6**. 640x360 coded as 640x368 (40x23 = 920 MBs), level 3.0: 8100 / 920 = **8**. 1280x720 (3600 MBs), level 3.1: 18000 / 3600 = **5**. 1920x1088 (8160 MBs): level 4.0 gives 32768 / 8160 = **4**; level 5.1 gives 22, capped to **16**. 176x144 (99 MBs): level 1b gives 396 / 99 = **4**, but level 1.1 gives 900 / 99 = **9**.
 
-`max_num_reorder_frames` is *not* part of the C.4 model. It is the stream's promise of how many pictures can precede any picture in decoding order and follow it in output order, so a low-latency player may output a picture as soon as more than that many are waiting. It never changes the order, only the time. Ignore it here; the project needs only the DPB size. (9.3 will use it.)
+`max_num_reorder_frames` is *not* part of the C.4 model. It is the stream's promise of how many pictures can precede any picture in decoding order and follow it in output order, so a low-latency player may output a picture as soon as more than that many are waiting. It never changes the order, only the time. Ignore it here; the project needs only the DPB size. (No later chapter uses it either; it only matters for a low-latency player, which you can add on top.)
 
 ### 3.3 The state of a frame buffer
 

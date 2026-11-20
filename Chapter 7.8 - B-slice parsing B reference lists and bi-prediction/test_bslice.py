@@ -645,7 +645,7 @@ def ffmpeg_mvs(path, td):
     """{output frame: {(dst_x, dst_y, src, w, h): (mvx, mvy)}} from ffmpeg's exported motion vectors (ffmv_helper.py)."""
     raw = raw_264(path, td)
     outp = os.path.join(td, "mv_export.txt")
-    p = subprocess.run([sys.executable, os.path.join(HERE, "ffmv_helper.py"), raw, outp], stdin=subprocess.DEVNULL,
+    p = subprocess.run([sys.executable, os.path.join(HERE, "..", "common", "ffmv_helper.py"), raw, outp], stdin=subprocess.DEVNULL,
                        capture_output=True, timeout=300)
     if p.returncode != 0:
         return None

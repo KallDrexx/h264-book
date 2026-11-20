@@ -135,7 +135,7 @@ def ffmpeg_vectors(path, td):
         ffref.raw_h264(path, raw)
     outp = os.path.join(td, "mvtruth.txt")
     try:
-        r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "ffmv_helper.py"), raw, outp], stdin=subprocess.DEVNULL,
+        r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "..", "common", "ffmv_helper.py"), raw, outp], stdin=subprocess.DEVNULL,
                            capture_output=True, timeout=300)
     except subprocess.TimeoutExpired:
         res = (None, "ffmpeg motion-vector export timed out")

@@ -1,5 +1,7 @@
 # Chapter 9.2 - Colour conversion and image output
 
+> **SPOILER WARNING - do not open `spoiler_reference/` until your own conversion passes.** `spoiler_reference/colour_ref.py` (the YCbCr to RGB conversion) and `colour_reader.py` (a complete reader built on it) are solutions of this chapter; `synth.py` builds the synthetic test frames. `test_colour.py` is plumbing and safe to read.
+
 ## 1. Goal and the project
 
 Your decoder now writes correctly ordered planar YUV frames (9.1). Nobody can look at those directly. This chapter turns a frame into an ordinary image: **YCbCr 4:2:0 to RGB**, then a **PPM** file that any image viewer opens. You build a small stand-alone program that reads a decoded yuv420p file (the format of 5.1 / 9.1) and writes RGB images of the frames you choose. The harness compares them with a reference conversion, with a small tolerance, since the standard does not define this step bit-exactly and real converters differ in the last digit.

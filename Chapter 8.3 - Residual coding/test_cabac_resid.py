@@ -127,9 +127,9 @@ def parse_dump(text, who):
                 if len(w) < 3 or not w[2].isdigit():
                     bad("MB needs a macroblock address")
                 d = kv(w[3:])
-                extra = [k for k in d if k not in FIELDS]
-                if extra:
-                    bad(f"unknown field {extra[0]}= (allowed: {', '.join(FIELDS)})")
+                err = mbdump.cabac_aliases(d)      # Phase 4 spellings accepted; other extra keys ignored (common/README.md)
+                if err:
+                    bad(err)
                 for f in FIELDS:
                     if f not in d:
                         bad(f"missing field {f}=")
@@ -566,8 +566,12 @@ def self_test():
         for what, fn in tests.items():
             rc, _ = run_check(exp, corrupted(fn))
             step(f"output with {what} is rejected", rc == 1, f"exit code {rc}")
+        long_text = "\n".join(mbdump.long_spelling(l) + " name=X bit=7" if l.startswith("MB ") else l for l in lines) + "\n"
+        rc, rep = run_check(exp, long_text)
+        step("the Phase 4 / 7 key spellings (mb_type, chroma_pred, qp_delta, modes=-1,2,...) plus unknown extra keys are accepted",
+             rc == 0 and long_text != truth_text, rep.failures[0] if rep.failures else f"exit code {rc}")
         for what, text in {"a line with an unknown keyword": "FOO 1\n", "an MB line without fields": "SLICE 0 type=I first_mb=0\nMB 0 0\n",
-                           "an unknown extra field": "SLICE 0 type=I first_mb=0\nMB 0 0 mbt=0 cpred=0 modes=pppppppppppppppp cbp=0 qpd=- qp=1 coef=- eos=1 x=1\nEND 0 mbs=1\n",
+                           "both spellings of a key with different values": "SLICE 0 type=I first_mb=0\nMB 0 0 mbt=0 cpred=0 modes=pppppppppppppppp cbp=0 qpd=- qp=1 coef=- eos=1 mb_type=1\nEND 0 mbs=1\n",
                            "a missing coef field": "SLICE 0 type=I first_mb=0\nMB 0 0 mbt=0 cpred=0 modes=pppppppppppppppp cbp=0 qpd=- qp=1 eos=1\nEND 0 mbs=1\n",
                            "a malformed coef value": "SLICE 0 type=I first_mb=0\nMB 0 0 mbt=0 cpred=0 modes=pppppppppppppppp cbp=0 qpd=- qp=1 coef=luma0:3 eos=1\nEND 0 mbs=1\n",
                            "a bad value": "SLICE 0 type=I first_mb=0\nMB 0 0 mbt=x cpred=0 modes=- cbp=0 qpd=- qp=1 coef=- eos=0\nEND 0 mbs=1\n"}.items():

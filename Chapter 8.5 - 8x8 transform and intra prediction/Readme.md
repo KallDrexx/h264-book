@@ -6,7 +6,7 @@ So far every residual block is 4x4 and Intra prediction works on 4x4 blocks or t
 
 The switch is one syntax element, `transform_size_8x8_flag`. It changes the syntax (where the flag sits, its CABAC context), the residual (64-coefficient blocks: four interleaved 4x4 blocks in CAVLC, a new `ctxBlockCat` 5 in CABAC), the scan, dequantisation and inverse transform, adds **Intra 8x8 prediction**, and changes two deblocking rules.
 
-You verify it two ways: a dump of what you parsed, and whole High-profile streams decoded to **ffmpeg's exact pixels**. Everything else comes from your decoder of Chapters 5 to 8.4. **Milestone**: `T11_high` (default x264 High: CABAC, B frames, 8x8 transform) and its CAVLC variant decode byte-identical.
+You verify it two ways: a dump of what you parsed, and whole High-profile streams decoded to **ffmpeg's exact pixels**. Everything else comes from your decoder of Phases 5 to 7 and Chapters 8.1 to 8.4. **Milestone**: `T11_high` (default x264 High: CABAC, B frames, 8x8 transform) and its CAVLC variant decode byte-identical.
 
 Out of scope: scaling matrices (Chapter 8.6; all streams here use the flat default), field pictures and MBAFF, 4:4:4, high bit depth, lossless (`qpprime_y_zero_transform_bypass`).
 
@@ -219,7 +219,7 @@ MB <slice> <addr> mbt=<..> t8=<..> modes=<..> imode=<..> cbp=<..> qp=<..> coef=<
 END <slice> mbs=<number of MB lines>
 ```
 
-`<slice>` is the 0-based index of the slice NAL unit among all slice NAL units (types 1 and 5) in the stream. Every macroblock of the slice is listed in decoding order, with all seven keys in this order. The dump is the same for CAVLC and CABAC.
+`<slice>` is the 0-based index of the slice NAL unit among all slice NAL units (types 1 and 5) in the stream. Every macroblock of the slice is listed in decoding order, with all seven keys (this order is the one the expected dump uses; `common/README.md`, "Macroblock dump grammar": keys in any order, extra keys ignored, Chapter 4.2's long spellings such as `mb_type` / `qp_delta` accepted, e.g. `t8x8` for `t8`). The dump is the same for CAVLC and CABAC.
 
 | Key | Value |
 |---|---|

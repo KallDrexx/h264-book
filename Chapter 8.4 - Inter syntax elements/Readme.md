@@ -179,7 +179,9 @@ Extend your Chapter 8.3 parser:
 3. Print the five new keys (section 5.1).
 4. **Verify** (the Summary's check, in this chapter's terms): on `T10_p` and `T10_b` (and the other generated streams), your dump equals the expected one; every slice ends with `end_of_slice_flag` = 1 on exactly its last macroblock. With that, **a default x264 Main stream (`-profile:v main`: CABAC, B frames, several references) parses completely.**
 
-**What this gives you for decoding.** Parsing is now complete for Main-profile CABAC streams: you have every `mb_type`, `sub_mb_type`, `ref_idx`, `mvd` and every coefficient. Everything after parsing (motion vector prediction from the `mvd`, Chapter 7.3 and the direct modes, reference lists, interpolation, weighting, deblocking, Chapters 5 to 7) is entropy-coder independent: feed it the numbers you parsed here. A CABAC P or B stream should then decode to ffmpeg's pixels. **This harness does not check that end-to-end:** it needs your whole decoder, and the reference here verifies the parse and not the vectors (Chapter 7's harnesses check them). If your decoder is complete, comparing its YUV with `ffmpeg -fps_mode passthrough -f rawvideo -pix_fmt yuv420p` (Chapter 5.1's reference) is the natural final test of this chapter's output.
+**What this gives you for decoding.** Parsing is now complete for Main-profile CABAC streams: you have every `mb_type`, `sub_mb_type`, `ref_idx`, `mvd` and every coefficient. Everything after parsing (motion vector prediction from the `mvd`, Chapter 7.3 and the direct modes, reference lists, interpolation, weighting, deblocking, Phases 5 to 7) is entropy-coder independent: feed it the numbers you parsed here. A CABAC P or B stream should then decode to ffmpeg's pixels.
+
+5. **Verify end to end** (the Summary's check): decode `T10_full` (x264's default `-profile:v main`: CABAC, B frames, several references) with your whole decoder, write the cropped yuv420p file of Chapter 5.1 (all frames, output order) and run `python3 test_cabac_inter.py --yuv T10_full.ts your.yuv`. It must be byte-identical to ffmpeg's decode (`-fps_mode passthrough -f rawvideo -pix_fmt yuv420p`); a mismatch is reported as the first differing frame, plane, macroblock and pixel (Chapter 5.1's `common/yuvcmp.py`). This works on any Main-profile CABAC stream, so try `T10_b`, `T10_ref` and `T10_manyb` too. If your dump passes but `--yuv` fails, the bug is after parsing (Phases 5 to 7), not in this chapter's syntax.
 
 ## 5. Harness input and output formats
 
@@ -194,7 +196,7 @@ MB <slice> <addr> mbt=<..> cpred=<..> modes=<..> sub=<..> refidx=<..> refidx1=<.
 END <slice> mbs=<number of MB lines>
 ```
 
-All thirteen keys on every MB line, in this order. `mbt`, `cpred`, `modes`, `cbp`, `qpd`, `qp`, `coef`, `eos` are exactly as in Chapters 8.2 and 8.3. New keys:
+All thirteen keys on every MB line; this order is the one the expected dump uses (`common/README.md`, "Macroblock dump grammar": keys in any order, extra keys ignored, Chapter 4.2's long spellings such as `mb_type` / `qp_delta` accepted). `mbt`, `cpred`, `modes`, `cbp`, `qpd`, `qp`, `coef`, `eos` are exactly as in Chapters 8.2 and 8.3. New keys:
 
 | Key | Value |
 |---|---|
@@ -220,18 +222,19 @@ The first is a P_8x8 macroblock (slice 1, a P slice) whose four quadrants are al
 
 ```
 python3 test_cabac_inter.py INPUT.ts your_dump.txt
+python3 test_cabac_inter.py --yuv INPUT.ts your.yuv                    # end to end (step 5 of section 4)
 python3 test_cabac_inter.py --print-expected INPUT.ts expected.txt     # to diff against yours
 python3 test_cabac_inter.py --make-variants DIR
 python3 test_cabac_inter.py --self-test
 ```
 
-Exit 0 = pass, 1 = your dump differs (the first wrong macroblock of each slice, the differing fields, the first differing entry of a `refidx` / `mvd` list, and a hint about the rule), 2 = unusable input or output.
+Exit 0 = pass, 1 = your dump differs (the first wrong macroblock of each slice, the differing fields, the first differing entry of a `refidx` / `mvd` list, and a hint about the rule), 2 = unusable input or output. With `--yuv`, 1 means your frames differ from ffmpeg's (first differing frame / plane / macroblock / pixel, frame count, a hint when Cb and Cr are swapped).
 
 What it compares against: (1) a reference parser that decodes **everything** in the slices, accepted only if `end_of_slice_flag` = 1 comes exactly at the last macroblock of every slice and the stop bit follows; with real x264 streams that is a strong proof for the whole parse, since one wrong context anywhere derails everything after it; (2) ffmpeg's `-debug mb_type` map (class and partition shape of every macroblock) and `-debug qp` map; (3) synthetic streams from an independent CABAC **encoder**: every P / B macroblock type, every sub type (direct quadrants included), `ref_idx` up to 2 with one to three active references per list, `mvd` values around every context threshold (sums 2, 3, 32, 33) and the escape (8, 9, 10) and as large as 2500, all neighbour combinations (skipped, direct, intra, I_PCM, other slice, either list). Their expected `sub` / `refidx` / `mvd` come from the construction, and ffmpeg decodes them without errors and reproduces their I_PCM samples, which only works if ffmpeg stayed in sync through all the `ref_idx` / `mvd` bins.
 
-`--self-test` also runs 37 deliberately wrong rules in the reader (wrong `sub_mb_type` contexts and mappings; `ref_idx` neighbour conditions, contexts and gating; `mvd` thresholds, contexts, suffix, sign, neighbour storage; wrong syntax order) and requires each to be rejected on at least one stream; it says on how many.
+`--self-test` also checks the `--yuv` channel on `T10_full`: ffmpeg's own frames pass, and a single sample off by one, two frames in decode instead of output order, a missing last frame and swapped chroma planes are rejected. It runs 37 deliberately wrong rules in the reader (wrong `sub_mb_type` contexts and mappings; `ref_idx` neighbour conditions, contexts and gating; `mvd` thresholds, contexts, suffix, sign, neighbour storage; wrong syntax order) and requires each to be rejected on at least one stream; it says on how many.
 
-**Not verified by this harness:** the motion vectors themselves (predictor + `mvd`). The Phase 7 chapters' harnesses check vectors against ffmpeg's exported ones; once you combine this parser with your Chapter 7.3 / 7.9 code, those checks apply to CABAC streams unchanged.
+**Not verified by the dump:** the motion vectors themselves (predictor + `mvd`). The `--yuv` check covers them end to end (a wrong vector changes pixels); for a precise location, the Phase 7 chapters' harnesses check vectors against ffmpeg's exported ones, and once you combine this parser with your Chapter 7.3 / 7.9 code those checks apply to CABAC streams unchanged.
 
 **Spoiler warning:** `spoiler_reference/` holds the reference parser, the encoder and the stream generator. Don't open it before your own parser passes.
 

@@ -1,7 +1,9 @@
 """Shared pieces of the Phase 4 harnesses (Chapters 4.1 - 4.4): the macroblock-dump parser, the ffmpeg
 macroblock-class cross-check of the reference, and the decode/PCM-pixel check of synthetic streams.
 
-Dump grammar: Chapter 4.1's Readme, section 5 (later chapters add keys to the MB line).
+Dump grammar: Chapter 4.1's Readme, section 5 (later chapters add keys to the MB line); the rules every macroblock dump of the
+book shares (and the two key spellings) are in common/README.md, "Macroblock dump grammar".  cabac_aliases() is the spelling
+mapping used by the CABAC-phase harnesses (Chapters 8.2 - 8.5, 10.3).
 """
 import os
 import re
@@ -19,6 +21,44 @@ STATUSES = ("complete", "stopped", "skipped", "error")
 def die(msg, code=2):
     print(msg, file=sys.stderr)
     sys.exit(code)
+
+
+# ================================================================ key spellings (common/README.md, "Macroblock dump grammar")
+LONG_TO_SHORT = {"mb_type": "mbt", "chroma_pred": "cpred", "qp_delta": "qpd", "t8x8": "t8"}
+_MODE_LIST = re.compile(r"^(-1|[0-7])(,(-1|[0-7]))*$")
+
+
+def cabac_aliases(d):
+    """Accept the Phase 4 / 7 spellings on a CABAC-phase MB line: rename mb_type / chroma_pred / qp_delta / t8x8 to mbt / cpred /
+    qpd / t8 and rewrite a Phase 4 `modes` value (comma list with -1 = predicted, or i16:<m>) to the short form (p or the rem digit
+    per element, `-` for Intra16x16).  Changes the dict `d` in place; -> None, or an error text when both spellings of a key are
+    present with different values."""
+    for long_k, short_k in LONG_TO_SHORT.items():
+        if long_k in d:
+            v = d.pop(long_k)
+            if short_k in d and d[short_k] != v:
+                return f"{long_k}={v} and {short_k}={d[short_k]} disagree"
+            d[short_k] = v
+    m = d.get("modes")
+    if m is not None:
+        if m.startswith("i16:"):
+            d["modes"] = "-"
+        elif "," in m and _MODE_LIST.match(m):
+            d["modes"] = "".join("p" if e == "-1" else e for e in m.split(","))
+    return None
+
+
+def long_spelling(line):
+    """The Phase 4 / 7 spelling of a CABAC-phase MB line (harness self-tests: a reader that prints the long names must pass)."""
+    out = []
+    for t in line.split():
+        k, eq, v = t.partition("=")
+        if eq and k == "modes" and v != "-":
+            v = ",".join("-1" if c == "p" else c for c in v)
+        if eq:
+            k = {s_: l_ for l_, s_ in LONG_TO_SHORT.items()}.get(k, k)
+        out.append(k + eq + v)
+    return " ".join(out)
 
 
 # ================================================================ reader output parsing

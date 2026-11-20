@@ -14,7 +14,7 @@ You will build:
 
 **An important honest note about T1.** The Summary says T1 should decode byte-identical after this chapter. It will not, and the reason is not your fault. T1 is encoded with `partitions=none`, yet x264 still codes about a quarter of its macroblocks (4789 of 19800) as I_NxN, which needs Intra 4x4 prediction. Chapter 4.1 hinted at this. So this chapter's verification is built differently, in three layers (section 6): synthetic streams made only of Intra16x16 macroblocks, a real x264 recipe that produces only Intra16x16 macroblocks, and a sound "ignore what is not decidable yet" mode for T1. Byte-identical T1 is the milestone of Chapter 5.4.
 
-**Spoiler warning:** `intraref.py` and `refdecode.py` in this folder are a complete solution, shipped for the harness's self-test. Do not open them before you have written your own (section 6).
+**Spoiler warning:** `spoiler_reference/intraref.py` and `spoiler_reference/refdecode.py` are a complete solution (and `spoiler_reference/transref.py` a copy of Chapter 5.2's), shipped for the harness's self-test. Do not open them before you have written your own (section 6).
 
 ## 2. Big picture
 
@@ -227,7 +227,7 @@ Exit code: 0 pass, 1 fail, 2 missing or unusable reader output.
 
 **How the harness checks itself.** `python3 test_intra16.py --self-test` (about a minute) runs a reference reader on every stream and requires it to pass. It then requires these to fail: one wrong luma or Cr sample, Cb and Cr swapped, a truncated file, and eight deliberately wrong prediction rules (no clip in luma plane, wrong luma and chroma plane constants, wrong DC rounding, wrong chroma DC preference for blocks 1, 2 and 3, chroma horizontal and vertical swapped). It also checks the `--only-i16` rules in both directions: a wrong luma sample in a macroblock that depends on an I_NxN one is ignored, while a wrong luma sample in a checked macroblock, or a wrong chroma sample in an I_NxN macroblock, fails.
 
-> **Spoiler warning.** This folder contains a complete solution to this chapter: `intraref.py` (the prediction formulas of section 3 in executable form) and `refdecode.py` (the reference reader, built on `common/cavlc_ref.py`, `intraref.py` and Chapter 5.2's `transref.py`). The harness needs them for `--self-test`, but writing this code yourself is the exercise. Do not open them until you have tried, and then only to compare once a test has failed and the debugging tips below did not help. `predgen.py` (the stream generator) is encoder-side and computes no predictions; it does contain the availability rule of section 3.1, which it needs to choose legal modes.
+> **Spoiler warning.** `spoiler_reference/` contains a complete solution to this chapter: `intraref.py` (the prediction formulas of section 3 in executable form) and `refdecode.py` (the reference reader, built on `common/cavlc_ref.py`, `intraref.py` and Chapter 5.2's `transref.py`). The harness needs them for `--self-test`, but writing this code yourself is the exercise. Do not open them until you have tried, and then only to compare once a test has failed and the debugging tips below did not help. `predgen.py` (the stream generator) is encoder-side and computes no predictions; it does contain the availability rule of section 3.1, which it needs to choose legal modes.
 
 ## 7. Reading failures / debugging tips
 

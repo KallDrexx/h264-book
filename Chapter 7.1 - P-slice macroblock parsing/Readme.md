@@ -132,7 +132,7 @@ ue(v) code (1 bit for 0, 3 bits for 1) is wasteful, so:
 | 2 or more | an ordinary ue(v) |
 
 (The condition in the syntax table is: present if `num_ref_idx_l0_active_minus1 > 0` - plus a field-macroblock-in-MBAFF case that
-Chapter 11 handles.) So you cannot parse a P macroblock without knowing the slice's `num_ref_idx_l0_active_minus1`: it is the
+Chapter 10.3 handles.) So you cannot parse a P macroblock without knowing the slice's `num_ref_idx_l0_active_minus1`: it is the
 slice header value if `num_ref_idx_active_override_flag` is 1, otherwise the PPS `num_ref_idx_l0_default_active_minus1`. The
 same macroblock bits mean different things under different values. It is also the reason a slice header error shows up here as garbage.
 
@@ -211,7 +211,7 @@ Suggested internal structure for the later chapters: keep, per macroblock, a lis
 ## 5. Harness input format
 
 One text file, UTF-8, one record per line, tokens separated by single spaces, `key=value` tokens without spaces in the value.
-Blank lines and lines starting with `#` are ignored. This is the Phase 4 grammar (SLICE / MB / PCM / END / HIST) with new keys.
+Blank lines and lines starting with `#` are ignored. This is the Phase 4 grammar (SLICE / MB / PCM / END / HIST) with new keys (the book-wide rules: `common/README.md`, "Macroblock dump grammar").
 
 ```
 SLICE <i> type=<I|P|B|SP|SI> first_mb=<n> pic_size_in_mbs=<n> header_end_bit=<n>

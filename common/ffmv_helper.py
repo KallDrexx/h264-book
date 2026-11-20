@@ -1,6 +1,6 @@
 """Helper process: print the motion vectors libavcodec exports (AVMotionVector side data), via ctypes, no headers needed.
 
-usage: python3 ffmv_helper.py in.264 out.txt
+usage: python3 common/ffmv_helper.py in.264 out.txt   (used by Chapters 7.3, 7.8, 7.9, 10.4)
 Writes one line per exported vector:  <frame> <source> <w> <h> <dst_x> <dst_y> <mvx> <mvy> <scale>
 (frame = 0-based index in OUTPUT order; for streams without B slices output order = decoding order.)
 Run as a subprocess with a timeout (a crash here must not take the harness down).  Only plain C-ABI calls are used and the

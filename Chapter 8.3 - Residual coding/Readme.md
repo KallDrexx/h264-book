@@ -6,7 +6,7 @@ Chapter 8.2 decoded everything in a CABAC macroblock except the **residual**: th
 
 The syntax elements are `coded_block_flag`, `significant_coeff_flag`, `last_significant_coeff_flag`, `coeff_abs_level_minus1` and `coeff_sign_flag`, for the block categories `ctxBlockCat` 0 to 4 (Intra16x16 DC and AC, Luma 4x4, chroma DC and AC).
 
-Your program prints the macroblock dump of 8.2 with one more key, `coef`. It holds the coefficients of every residual block in the same shape as the CAVLC chapters' `coef` key. So everything after parsing (dequantisation, transforms, prediction, Chapters 5 to 7) does not care which entropy coder produced the numbers.
+Your program prints the macroblock dump of 8.2 with one more key, `coef`. It holds the coefficients of every residual block in the same shape as the CAVLC chapters' `coef` key. So everything after parsing (dequantisation, transforms, prediction, Phases 5 to 7) does not care which entropy coder produced the numbers.
 
 What stays: the `cbp` hints. For inter macroblocks, `sub_mb_type`, `ref_idx` and `mvd` still stand between `mb_type` and `coded_block_pattern`. Chapter 8.4 removes them.
 
@@ -14,7 +14,7 @@ Out of scope: `ctxBlockCat` 5, the blocks of the 8x8 transform, is deferred to C
 
 ## 2. Big picture
 
-A residual block is a list of up to 16 numbers in zig-zag scan order, mostly zeros. CAVLC (Chapter 4) sent it as "how many non-zeros, then their values, then the zero runs". CABAC sends it in **three passes**, each made of context-coded bins:
+A residual block is a list of up to 16 numbers in zig-zag scan order, mostly zeros. CAVLC (Phase 4) sent it as "how many non-zeros, then their values, then the zero runs". CABAC sends it in **three passes**, each made of context-coded bins:
 
 1. **`coded_block_flag`**: is there anything in this block at all? One bin. 0 means all-zero and the block ends here.
 2. **Significance map**: walk the scan positions from 0. For each, one bin "is this coefficient non-zero?" (`significant_coeff_flag`). After every non-zero one, a second bin "was that the last non-zero one?" (`last_significant_coeff_flag`). That tells the decoder where the non-zeros are and where the block ends, with no run lengths.
@@ -132,7 +132,7 @@ Extend your Chapter 8.2 slice parser:
 3. Keep the `cbp` hints exactly as in 8.2 for inter macroblocks other than B_Direct_16x16.
 4. **Verify** (the Summary's check): on a T10 intra-only file the `coef` keys are right, and each slice ends with `end_of_slice_flag` = 1 at exactly the last macroblock. Then the same on T10 P and B streams.
 
-**Optional end-to-end check.** If your decoder already reconstructs intra pictures (Chapters 5 and 6), feed it these coefficients: for an **intra-only** CABAC stream (for example `T10_intra`, which has no deblocking) your output YUV must equal ffmpeg's. `python3 test_cabac_resid.py --yuv INPUT.ts your.yuv` does this comparison with `common/yuvcmp.py` (first differing frame, plane, macroblock and pixel); `your.yuv` is the cropped yuv420p file of Chapter 5.1, all frames in output order. This check is optional and not needed to pass the chapter. It works only on intra-only streams: for P and B streams it cannot pass yet, because `ref_idx` and `mvd` are only decoded in Chapter 8.4.
+**Optional end-to-end check.** If your decoder already reconstructs intra pictures (Phases 5 and 6), feed it these coefficients: for an **intra-only** CABAC stream (for example `T10_intra`, which has no deblocking) your output YUV must equal ffmpeg's. `python3 test_cabac_resid.py --yuv INPUT.ts your.yuv` does this comparison with `common/yuvcmp.py` (first differing frame, plane, macroblock and pixel); `your.yuv` is the cropped yuv420p file of Chapter 5.1, all frames in output order. This check is optional and not needed to pass the chapter. It works only on intra-only streams: for P and B streams it cannot pass yet, because `ref_idx` and `mvd` are only decoded in Chapter 8.4.
 
 ## 5. Harness input and output formats
 
@@ -155,7 +155,7 @@ MB <slice> <addr> mbt=<..> cpred=<..> modes=<..> cbp=<..> qpd=<..> qp=<..> coef=
 END <slice> mbs=<number of MB lines>
 ```
 
-The first six keys and `eos` are exactly those of Chapter 8.2 (same values, same rules); `coef` sits between `qp` and `eos` (it is decoded before the `end_of_slice_flag`). All eight keys must be present, in this order.
+The first six keys and `eos` are exactly those of Chapter 8.2 (same values, same rules); `coef` sits between `qp` and `eos` (it is decoded before the `end_of_slice_flag`). All eight keys must be present; this order is the one the expected dump uses (`common/README.md`, "Macroblock dump grammar": keys in any order, extra keys ignored, Chapter 4.2's long spellings such as `mb_type` / `qp_delta` accepted).
 
 `coef` is `-` when the macroblock has no residual syntax (skipped, I_PCM, I_NxN or inter with CBP 0). Otherwise it is the list of the macroblock's blocks in decoding order, separated by `;`:
 
@@ -201,7 +201,7 @@ What it compares against: (1) a reference parser that decodes **everything** in 
 * **Chroma AC / Intra16x16 AC positions shifted by one:** list index versus scan position (`pos` = list index + 1); the significance contexts still use the list index.
 * **Only chroma DC wrong:** `Min(i, 2)` increments, level bins 1+ capped at `5 + 3`.
 * **Slice ends early or runs on:** any of the above; also check that I_16x16 always decodes its DC block, and that AC blocks of an I_16x16 appear only when luma CBP = 15.
-* **`--yuv` mismatch but `coef` right:** not this chapter; look at dequantisation, prediction and QP (Chapters 5 and 6).
+* **`--yuv` mismatch but `coef` right:** not this chapter; look at dequantisation, prediction and QP (Phases 5 and 6).
 
 ## 8. What's next
 

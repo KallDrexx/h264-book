@@ -107,6 +107,8 @@ Write a program that takes a `.ts` or raw `.264` file and writes a dump file (se
 - One more stopping case, so that you never have to compute `nC` next to I_PCM: **once an `I_PCM` macroblock has been read in this slice, any later macroblock that is not `I_PCM` stops the slice** (print its `MB` line, status `stopped`). The reason: a block next to an `I_PCM` macroblock counts as having 16 coefficients, which changes the `coeff_token` code table. Chapter 4.3 removes this restriction.
 - After a finished macroblock call `more_rbsp_data()`. If false, status `complete`. If true, go to the next address.
 
+**The stop rule is temporary scaffolding.** It exists only because the residual syntax comes later. Chapter 4.2 widens it (it can finish `I_NxN` macroblocks and residual-free ones), Chapter 4.3 replaces it with a *block boundary file* from the harness (it tells you where every residual block starts and ends, so you read `coeff_token` and jump to the next block), and Chapter 4.4 deletes all of it, because by then you parse every bit. So keep the stop decision in one small function that you can replace and finally delete; nothing else in your reader should depend on it.
+
 In summary: the macroblocks you read are some skeletons and PCMs, then possibly one macroblock you stop at. In a stream with a real `x264` encode of normal video you usually stop at the very first macroblock of each slice; in the other test streams you read up to hundreds.
 
 **Histogram.** After the last slice print the `mb_type` histogram over every `MB` line you printed (including those you stopped at).
@@ -115,7 +117,7 @@ In summary: the macroblocks you read are some skeletons and PCMs, then possibly 
 
 ## 5. Harness input format
 
-One text file, UTF-8/ASCII, one record per line, fields separated by single spaces. Blank lines and lines starting with `#` are ignored. Numbers are decimal, no leading `+`. Every `key=value` pair has no spaces inside. **Extra keys on `SLICE`, `MB`, `PCM` and `END` lines are allowed and ignored** (later chapters add keys), and the keys of one line may come in any order. An unknown line type is an error.
+One text file, UTF-8/ASCII, one record per line, fields separated by single spaces. Blank lines and lines starting with `#` are ignored. Numbers are decimal, no leading `+`. Every `key=value` pair has no spaces inside. **Extra keys on `SLICE`, `MB`, `PCM` and `END` lines are allowed and ignored** (later chapters add keys), and the keys of one line may come in any order. An unknown line type is an error. (These rules hold for every macroblock dump in the book; `common/README.md`, "Macroblock dump grammar", states them once.)
 
 ```
 SLICE <slice_index> type=<I|P|B|SP|SI> first_mb=<n> pic_size_in_mbs=<n> header_end_bit=<n>

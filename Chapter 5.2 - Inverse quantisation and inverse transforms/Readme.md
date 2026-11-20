@@ -1,5 +1,7 @@
 # Chapter 5.2 - Inverse quantisation and inverse transforms
 
+> **SPOILER WARNING - do not open `spoiler_reference/` until your own arithmetic passes.** `spoiler_reference/transref.py` is a complete solution of this chapter (the harness computes every expected result with it, so you never need to read it). `test_transforms.py` and `recongen.py` (the synthetic stream generator) are plumbing and safe to read.
+
 ## 1. Goal and the project
 
 Chapter 4.4 gave you, for every macroblock, lists of integer **levels** (the parsed residual coefficients). Chapter 5.1 gave you frame buffers. This chapter turns levels into **residual samples**: small signed numbers that, added to a prediction, give the picture. You build the arithmetic of spec section 8.5: scaling (inverse quantisation), the 4x4 inverse integer transform, the Intra16x16 luma DC and chroma DC transforms, the chroma QP derivation, and the final add-and-clip. Prediction itself is Chapter 5.3, so nothing here touches the frame buffer.
@@ -62,7 +64,7 @@ As a matrix, the scan position at each `(i, j)` is:
  9 10 14 15
 ```
 
-Level lists with 15 entries (the AC blocks of Intra16x16 and chroma) start at scan position 1: list entry `n` is scan position `n + 1`, and position 0 (the DC) is filled in separately. Field scan (for interlaced pictures) uses another table; Phase 8 adds it. For now frame scan only.
+Level lists with 15 entries (the AC blocks of Intra16x16 and chroma) start at scan position 1: list entry `n` is scan position `n + 1`, and position 0 (the DC) is filled in separately. Field scan (for interlaced pictures) uses another table; Phase 10 adds it. For now frame scan only.
 
 Hand check: levels 1, 2, ..., 16 in scan order give the raster matrix (row by row) `1 2 6 7 / 3 5 8 13 / 4 9 12 14 / 10 11 15 16`.
 
@@ -287,7 +289,7 @@ python3 test_transforms.py --write-vectors vectors.txt
 python3 test_transforms.py --vectors vectors.txt results.txt
 ```
 
-The expected result of every vector is recomputed from `transref.py` (the reference, in this folder). The harness reports vector index, the vector text, the first element that differs (with its row and column) and expected vs actual, then the first 10 failures. Exit code 0 = pass, 1 = failures (or wrong number of result lines), 2 = missing or malformed file.
+The expected result of every vector is recomputed from `spoiler_reference/transref.py` (the reference). The harness reports vector index, the vector text, the first element that differs (with its row and column) and expected vs actual, then the first 10 failures. Exit code 0 = pass, 1 = failures (or wrong number of result lines), 2 = missing or malformed file.
 
 Optional: `--seed N` with `--write-vectors` gives a different random set (default 52).
 

@@ -7,6 +7,7 @@ x264 cannot write PAFF field pictures, so the suite combines
     cycle through 0..8 (single fields, repeated fields, frame doubling / tripling),
   * the PAFF field-picture streams of Chapter 10.1 (spoiler_reference of that chapter), which carry no SEI at all.
 """
+import glob
 import os
 import subprocess
 import sys
@@ -86,7 +87,15 @@ def rewrite_pic_timing(data, fn):
 
 
 def _fgen(name):
-    sys.path.insert(0, os.path.join(ROOT, "Chapter 10.1 - Field pictures", "spoiler_reference"))
+    """One PAFF stream of Chapter 10.1's generator (Chapter 10.1's spoiler_reference/fgen.py; not copied here).  The folder is
+    found by its chapter number in the repository checkout and APPENDED to sys.path, so it never shadows this folder's modules."""
+    hits = sorted(glob.glob(os.path.join(ROOT, "Chapter 10.1 - *", "spoiler_reference", "fgen.py")))
+    if not hits:
+        raise SystemExit("mkstreams: the paff_* cases need Chapter 10.1's spoiler_reference/fgen.py, which was not found next to "
+                         "this chapter (a complete checkout of the book is required)")
+    d = os.path.dirname(os.path.abspath(hits[0]))
+    if d not in sys.path:
+        sys.path.append(d)
     import fgen
     data, _ = fgen.build(fgen.scenarios()[name])
     return data

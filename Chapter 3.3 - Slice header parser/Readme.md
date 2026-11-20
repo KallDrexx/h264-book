@@ -72,7 +72,7 @@ Both delta fields are printed with their index, exactly like that: `delta_pic_or
 | Field | Present when | Descriptor | Notes |
 | --- | --- | --- | --- |
 | `redundant_pic_cnt` | PPS `redundant_pic_cnt_present_flag` = 1 | ue(v) | 0 for a primary slice, above 0 for a redundant copy used for error resilience. A decoder with correct data discards the redundant slices; this book never meets them outside the variants. |
-| `direct_spatial_mv_pred_flag` | `slice_type % 5` = 1 (B) | u(1) | 1: spatial direct prediction, 0: temporal (Phase 6/7). |
+| `direct_spatial_mv_pred_flag` | `slice_type % 5` = 1 (B) | u(1) | 1: spatial direct prediction, 0: temporal (Chapter 7.9). |
 | `num_ref_idx_active_override_flag` | type P, SP or B | u(1) | 1: the counts below replace the PPS defaults. |
 | `num_ref_idx_l0_active_minus1` | override flag = 1 | ue(v) | Size of list 0 minus 1. |
 | `num_ref_idx_l1_active_minus1` | override flag = 1 and type B | ue(v) | Size of list 1 minus 1. |
@@ -296,7 +296,7 @@ Run the harness on `T1` (Baseline, IDR only), `T4` (4 slices per picture), `T5`,
 | `slice_multi.ts` | x264 High: 3 slices per picture, 5 reference frames, weighted P, CABAC, B pyramid. |
 | `slice_cavlc_multi.ts` | x264 Main: 4 slices per picture, CAVLC, temporal direct, implicit weighted B, strict B pyramid. |
 
-Coverage note: x264 does not write field pictures, long-term operations, B weight tables, POC types 1 and 2, redundant slices, SP/SI or separate colour planes. For those, the **only check is the field-by-field comparison with ffmpeg's `trace_headers`** of `slice_variants.264`; no decoder reads these headers. The self-test also checks that the generator (`slicegen.py`) and ffmpeg agree on every synthetic header.
+Coverage note: x264 writes POC type 2 for streams without B frames (`T1`, `T4`, `T5`, `T6`: the slice header then has no POC fields) and type 0 otherwise, but it never writes POC type 1, field pictures, long-term operations, B weight tables, redundant slices, SP/SI or separate colour planes. For those, the **only check is the field-by-field comparison with ffmpeg's `trace_headers`** of `slice_variants.264`; no decoder reads these headers. The self-test also checks that the generator (`slicegen.py`) and ffmpeg agree on every synthetic header.
 
 ## 5. Harness input format
 

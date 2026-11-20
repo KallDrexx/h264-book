@@ -146,7 +146,7 @@ Cut to 4 entries: `RefPicList0 = [1, 1, 1, 0]`. This is line `SLICE 2 0 ... list
 
 After marking, the DPB holds `numShortTerm + numLongTerm` frames, **including the current picture**, and that number must not exceed
 `Max(max_num_ref_frames, 1)`. With the sliding window this is automatic. With MMCO the encoder must make room itself (unmark something); a stream that does not is
-**non-conforming**. Treat it as an error (the harness exits 2 on such input). Decoders that want to survive broken streams (Phase 9.5) typically
+**non-conforming**. Treat it as an error (the harness exits 2 on such input). Decoders that want to survive broken streams (Chapter 9.5) typically
 drop the oldest short-term frame instead.
 
 ### 3.5 Marking (8.2.5)
@@ -204,7 +204,7 @@ Anything else is a **gap**: pictures with the intermediate `frame_num` values ar
   then insert it as a short-term frame. Afterwards `PrevRefFrameNum` equals the last inserted value.
   A non-existing frame has no pixels worth using and is never output. It occupies a slot, so it pushes real pictures out of the window and appears in default lists. A conforming stream
   never gives `ref_idx` a non-existing frame in inter prediction. A decoder may fill it with a copy of the previous picture (ffmpeg does).
-* If the flag is 0 the gap is a **loss** (the stream is damaged or was cut). That is error concealment, Phase 9.5; this harness exits 2 for it.
+* If the flag is 0 the gap is a **loss** (the stream is damaged or was cut). That is error concealment, Chapter 9.5; this harness exits 2 for it.
 
 The gap check happens before the slice's lists are built (the non-existing frames take part in them).
 

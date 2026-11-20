@@ -15,7 +15,7 @@ import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(HERE, ".."))
+sys.path.insert(0, os.path.join(HERE, "..", ".."))
 sys.path.insert(0, HERE)
 from common import cavlc_ref as R, yuvref  # noqa: E402
 import intraref  # noqa: E402

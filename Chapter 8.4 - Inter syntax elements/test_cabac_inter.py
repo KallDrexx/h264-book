@@ -3,6 +3,7 @@
 
 Usage (grammars: Readme, section 5):
   python3 test_cabac_inter.py INPUT READER_OUTPUT        check your macroblock dump of a CABAC stream (.ts or Annex B .264)
+  python3 test_cabac_inter.py --yuv INPUT READER.yuv     end-to-end check: your decoded frames vs ffmpeg's (any Main CABAC stream)
   python3 test_cabac_inter.py --print-expected INPUT OUT write the expected dump, to diff against yours
   python3 test_cabac_inter.py --make-variants DIR        write synthetic and x264 test streams with their expected dumps
   python3 test_cabac_inter.py --self-test                verify this harness (known-good passes; every deliberately wrong rule rejected)
@@ -19,7 +20,8 @@ rbsp_stop_one_bit follows, which is only possible if every context of every bin 
 It is also compared with ffmpeg (`-debug mb_type` class / partition shape and `-debug qp` of every macroblock); synthetic streams
 made by an independent CABAC encoder (spoiler_reference/intergen.py: every P / B partitioning and sub_mb_type, ref_idx up to 2,
 mvd up to +-2500, all neighbour cases, expected values from the construction) are decoded by ffmpeg and by the reference.
-Not checked against ffmpeg: the vectors themselves (they need Chapter 7.3's prediction; see the Readme).
+Not checked by the dump: the vectors themselves (they need Chapter 7.3's prediction; see the Readme).  --yuv closes that gap end
+to end: your whole decoder's cropped yuv420p output (Chapter 5.1's format, output order) must equal ffmpeg's byte for byte.
 """
 import argparse
 import json
@@ -34,7 +36,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SPOIL = os.path.join(HERE, "spoiler_reference")
 sys.path.insert(0, os.path.join(HERE, ".."))
 sys.path.insert(0, SPOIL)
-from common import cavlc_ref, ffref, inter_ref, mbdump, testfiles  # noqa: E402
+from common import cavlc_ref, ffref, inter_ref, mbdump, testfiles, yuvcmp, yuvref  # noqa: E402
 from common.report import Report  # noqa: E402
 import interref  # noqa: E402
 import intergen  # noqa: E402
@@ -136,9 +138,9 @@ def parse_dump(text, who):
                 if len(w) < 3 or not w[2].isdigit():
                     bad("MB needs a macroblock address")
                 d = kv(w[3:])
-                extra = [k for k in d if k not in FIELDS]
-                if extra:
-                    bad(f"unknown field {extra[0]}= (allowed: {', '.join(FIELDS)})")
+                err = mbdump.cabac_aliases(d)      # Phase 4 spellings accepted; other extra keys ignored (common/README.md)
+                if err:
+                    bad(err)
                 for f in FIELDS:
                     if f not in d:
                         bad(f"missing field {f}=")
@@ -459,6 +461,51 @@ def run_check(exp, text):
     return (1 if rep.failures else 0), rep
 
 
+def ffmpeg_yuv(path, out):
+    """ffmpeg's reference decode: cropped yuv420p, every frame, output order (the Chapter 5.1 reference; as in Chapter 8.3)."""
+    cmd = ["ffmpeg", "-v", "error", "-y"]
+    if path.lower().endswith((".264", ".h264")):
+        cmd += ["-f", "h264"]
+    cmd += ["-i", path, "-map", "0:v:0", "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "yuv420p", out]
+    ffref.run(cmd, timeout=600)
+    if not os.path.exists(out) or os.path.getsize(out) == 0:
+        die(f"ffmpeg could not decode {path}")
+
+
+def geometry(infos):
+    s = infos[0].sps
+    return yuvref.cropped_size(infos[0].pic_width_in_mbs, s["pic_height_in_map_units_minus1"] + 1, s.get("frame_mbs_only_flag", 1),
+                               s.get("frame_crop_left_offset", 0), s.get("frame_crop_right_offset", 0),
+                               s.get("frame_crop_top_offset", 0), s.get("frame_crop_bottom_offset", 0))
+
+
+def yuv_check(geo, ref, yuv):
+    """Compare a reader's YUV with ffmpeg's (already written to `ref`) -> (exit code, Report)."""
+    w, h, x0, y0 = geo
+    rep = Report("Chapter 8.4 end-to-end: your YUV vs ffmpeg")
+    if not os.path.exists(yuv) or os.path.getsize(yuv) == 0:
+        return 2, rep
+    r = yuvcmp.compare_yuv(ref, yuv, w, h, quiet=True, origin=(x0, y0))
+    rep.check(r["ok"], "pixels differ from ffmpeg's reference (expected = ffmpeg, actual = yours)\n    "
+              + r["text"].replace("\n", "\n    "))
+    return (0 if r["ok"] else 1), rep
+
+
+def yuv_mode(path, yuv):
+    """--yuv: the reader's decoded frames against ffmpeg's."""
+    td = tempfile.mkdtemp(prefix="cabac84_")
+    try:
+        infos = stream_infos(path, td)
+        if not os.path.exists(yuv) or os.path.getsize(yuv) == 0:
+            die(f"reader output {yuv!r} not found or empty")
+        ref = os.path.join(td, "ref.yuv")
+        ffmpeg_yuv(path, ref)
+        _, rep = yuv_check(geometry(infos), ref, yuv)
+        rep.finish()
+    finally:
+        shutil.rmtree(td, ignore_errors=True)
+
+
 def self_test():
     ok_all = True
     td = tempfile.mkdtemp(prefix="cabac84_")
@@ -551,15 +598,46 @@ def self_test():
             rc, _ = run_check(exp, corrupted(fn))
             step(f"output with {what} is rejected", rc == 1, f"exit code {rc}")
         base = "SLICE 0 type=P first_mb=0\nMB 0 0 mbt=0 cpred=- modes=- sub=- refidx=0 refidx1=- mvd=1:-2 mvd1=- cbp=0 qpd=- qp=1 coef=- eos=1\nEND 0 mbs=1\n"
+        long_text = "\n".join(mbdump.long_spelling(l) + " name=X bit=7" if l.startswith("MB ") else l for l in lines) + "\n"
+        rc, rep = run_check(exp, long_text)
+        step("the Phase 4 / 7 key spellings (mb_type, chroma_pred, qp_delta, modes=-1,2,...) plus unknown extra keys are accepted",
+             rc == 0 and long_text != truth_text, rep.failures[0] if rep.failures else f"exit code {rc}")
         for what, text in {"a line with an unknown keyword": "FOO 1\n",
                            "an MB line without fields": "SLICE 0 type=P first_mb=0\nMB 0 0\n",
-                           "an unknown extra field": base.replace("eos=1", "eos=1 x=1"),
+                           "both spellings of a key with different values": base.replace("eos=1", "eos=1 mb_type=1"),
                            "a missing mvd field": base.replace(" mvd=1:-2", ""),
                            "a malformed mvd value": base.replace("mvd=1:-2", "mvd=1,2"),
                            "a malformed sub value": base.replace("sub=-", "sub=1,2"),
                            "a bad value": base.replace("mbt=0", "mbt=x")}.items():
             rc, _ = run_check(exp, text)
             step(f"output with {what} gives exit code 2", rc == 2, f"exit code {rc}")
+        # 3b. the end-to-end --yuv channel on the default Main stream (T10_full): ffmpeg's own frames pass, wrong frames fail
+        yinfos = stream_infos(testfiles.get("T10_full"), td)
+        geo = geometry(yinfos)
+        ref = os.path.join(td, "ref84.yuv")
+        ffmpeg_yuv(testfiles.get("T10_full"), ref)
+        good = open(ref, "rb").read()
+        fsz = yuvref.frame_bytes(geo[0], geo[1])
+        nfr = len(good) // fsz
+        ybad = os.path.join(td, "bad84.yuv")
+        rc, _ = yuv_check(geo, ref, ref)
+        step(f"--yuv: ffmpeg's own {nfr} frames of T10_full (default Main: CABAC, B frames, several references) pass", rc == 0,
+             f"exit code {rc}")
+        f1, f2 = nfr // 2, nfr // 2 + 1
+        frames = [good[i * fsz:(i + 1) * fsz] for i in range(nfr)]
+        cw = (geo[0] + 1) // 2 * ((geo[1] + 1) // 2)
+        ysz = geo[0] * geo[1]
+        ymut = {
+            "one luma sample off by one in a middle frame": good[:f1 * fsz + 1000] + bytes([(good[f1 * fsz + 1000] + 1) & 255])
+            + good[f1 * fsz + 1001:],
+            "two frames swapped (decode order instead of output order)": b"".join(frames[:f1] + [frames[f2], frames[f1]] + frames[f2 + 1:]),
+            "the last frame missing": good[:-fsz],
+            "Cb and Cr swapped in every frame": b"".join(f[:ysz] + f[ysz + cw:] + f[ysz:ysz + cw] for f in frames),
+        }
+        for what, data in ymut.items():
+            open(ybad, "wb").write(data)
+            rc, _ = yuv_check(geo, ref, ybad)
+            step(f"--yuv: {what} is rejected", rc == 1, f"exit code {rc}")
         # 4. mutants: deliberately wrong rules in the reader
         names = list(interref.MUTANTS)
         print(f"  mutation tests ({len(names)} wrong rules; each must be rejected on at least one stream):")
@@ -598,6 +676,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("input", nargs="?", help="CABAC H.264 stream (.ts or Annex B .264)")
     ap.add_argument("output", nargs="?", help="your macroblock dump")
+    ap.add_argument("--yuv", action="store_true", help="INPUT READER.yuv: compare your decoded frames with ffmpeg's (end to end)")
     ap.add_argument("--make-variants", metavar="DIR")
     ap.add_argument("--print-expected", nargs=2, metavar=("INPUT", "OUT"), help="write the expected dump")
     ap.add_argument("--self-test", action="store_true")
@@ -607,6 +686,12 @@ def main():
     if a.make_variants:
         ffref.require_tools()
         make_variants(a.make_variants)
+        return
+    if a.yuv:
+        if not (a.input and a.output):
+            die("--yuv needs INPUT and READER.yuv")
+        ffref.require_tools()
+        yuv_mode(a.input, a.output)
         return
     td = tempfile.mkdtemp(prefix="cabac84_")
     try:

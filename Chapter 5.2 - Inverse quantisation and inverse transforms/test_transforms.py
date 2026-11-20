@@ -26,6 +26,7 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, ".."))
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(HERE, "spoiler_reference"))
 from common import ffref  # noqa: E402
 from common.report import Report  # noqa: E402
 import transref as T  # noqa: E402

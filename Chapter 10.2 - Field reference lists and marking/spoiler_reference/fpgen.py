@@ -8,10 +8,10 @@ truth, fdpb.py + fpdec.py (driven by the manifest written here) the truth for li
 
 What the streams exercise: field list initialisation (P and B), list modification commands with the field picNum rules, ref_idx up to
 31, sliding window and MMCO 1-6 on fields (including long-term fields and the second field of a frame), implicit weights and
-temporal / spatial direct with field POCs and co-located fields, deblocking of field pictures, mixed frame / field coding.
+temporal / spatial direct with field POCs and co-located fields (also co-located pictures coded the other way: d_mixed), deblocking of field pictures, mixed frame / field coding.
 Every macroblock is residual-free (coded_block_pattern 0); types: P and B inter types, skips, direct, I_PCM, Intra16x16 (DC).
 
-Validity: a temporal-direct slice is only legal when the co-located picture is coded like the current one and every picture its blocks
+Validity: a temporal-direct slice is only legal when every picture its co-located blocks
 refer to is in RefPicList0.  write_stream() asks the reference decoder (pixels=False) and, when it reports a slice that is not legal,
 regenerates the stream with that slice made spatial (or direct-free); every slice has its own random stream.
 """
@@ -55,6 +55,8 @@ SCENARIOS = {
                       mvd0=0.6, deblock=1),
     "d_temporal": dict(BASE, units=26, refs=4, maxb=3, p_pair=1.0, p_refb=0.5, spatial=0.0, max_a0=5, max_a1=3, p_mod=0.3,
                        seed_base=12, mvd0=0.5, poc_steps=[2, 4, 6, 8]),
+    "d_mixed": dict(BASE, units=30, refs=4, maxb=3, p_pair=0.5, p_refb=0.5, spatial=0.0, max_a0=5, max_a1=3, p_mod=0.2,
+                    seed_base=30, mvd0=0.3, poc_steps=[2, 4, 6, 8], mixed_col=True, p_direct16=0.3, p_sub_direct=0.5),
     "w_implicit": dict(BASE, units=26, refs=4, maxb=3, p_pair=1.0, p_refb=0.5, bipred_idc=2, spatial=0.5, max_a0=5, max_a1=4,
                        p_mod=0.3, seed_base=13, poc_steps=[2, 4, 6, 10, 14], log2_poc=9),
     "w_temporal": dict(BASE, units=26, refs=4, maxb=3, p_pair=1.0, p_refb=0.5, bipred_idc=2, spatial=0.0, max_a0=5, max_a1=4,
@@ -746,7 +748,8 @@ def _make_stream(name, seed, avoid, sc, salt):
                         okcol = False
                         if e0 is not None and e1 is not None:
                             s1 = next((s for s in d.stores if s.id == e1[0]), None)
-                            okcol = s1 is not None and s1.coded == ("F" if stt == "F" else "P") and s1.id != sid   # (ffmpeg disagrees with the standard when the co-located field is the first field of the current frame)
+                            okcol = (s1 is not None and (s1.coded == ("F" if stt == "F" else "P") or sc.get("mixed_col"))
+                                     and s1.id != sid)   # (ffmpeg disagrees with the standard when the co-located field is the first field of the current frame)
                         ctx["direct_ok"] = lvl < 2 and okcol
                 elif st in (0, 1):
                     st = ctx["slice_type"] = 2

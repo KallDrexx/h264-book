@@ -151,7 +151,7 @@ The syntax gave you (Chapter 7.1) `coded_block_pattern` (inter column), an optio
   macroblocks with CBP = 0 keep the running QP_Y and have no residual.
 * **Luma.** CBP bit q (q = 0..3) covers the four 4x4 blocks `luma4x4BlkIdx` 4q .. 4q+3 of the 8x8 quadrant q (the numbering of Phase 4/5). A block of a quadrant whose bit is
   0 has residual zero. A coded block has **16 coefficients, DC included**, in zig-zag scan order. All 16 are scaled with the ordinary 4x4 rule of
-  Phase 5.2 (LevelScale(qP % 6, i, j), shifted by qP / 6); the DC coefficient is **not** special (the Intra16x16 DC transform of Phase 5.3 does
+  Chapter 5.2 (LevelScale(qP % 6, i, j), shifted by qP / 6); the DC coefficient is **not** special (the Intra16x16 DC transform of Chapter 5.2 does
   not exist for inter macroblocks). Then the 4x4 inverse transform and `(x + 32) >> 6`.
 * **Chroma.** CBP chroma = 0: none; 1: only the two 2x2 DC blocks (Cb, Cr), AC zero; 2: DC and the 15 AC coefficients of each of the 4 blocks per plane.
   Exactly the Phase 5 chroma path with QP_C derived from QP_Y + `chroma_qp_index_offset` (Table 8-15).
@@ -220,21 +220,23 @@ Unrelated streams that need deblocking, B pictures, CABAC, weighted prediction..
 
 ### Which recipes can be decoded exactly after each Phase 7 chapter
 
+This is the book's one copy of this table; later Phase 7 chapters refer to it.
+
 | recipe | after 7.4 | after 7.5 | 7.6 | 7.7 | 7.8 | 7.9 |
 |---|---|---|---|---|---|---|
 | T1, T2, T4_nodeblock, `default_intra` (intra, no deblock) | yes (Phase 5) | yes | yes | yes | yes | yes |
 | T3, T3_dm3, T3_dp3, T4 (intra, deblocking) | yes (Phase 6) | yes | yes | yes | yes | yes |
 | T5 (P16x16, no deblock) | **yes** | yes | yes | yes | yes | yes |
 | T6_nodeblock (all partitions, ref=4, no deblock) | **yes** | yes | yes | yes | yes | yes |
-| T6 (deblocking on) | no | **yes** | yes | yes | yes | yes |
-| T6 with `ref=16`, reordering/MMCO variants | no | no | **yes** | yes | yes | yes |
+| T6 (deblocking on) | no | **yes - first complete Baseline decoder** | yes | yes | yes | yes |
+| T6 with `ref=16`, reordering / MMCO variants | no | plain `ref=16` streams without reordering (7.5's `d_ref16`) | **yes** | yes | yes | yes |
 | T7 (weighted P, fade) | no | no | no | **yes** | yes | yes |
 | T8 (B, no direct) | no | no | no | no | **yes** | yes |
 | T9_spatial, T9_temporal (B pyramid, direct, implicit weights) | no | no | no | no | no | **yes** |
-| `default` (x264 Main CAVLC, I/P/B) | no | no | no | no | no | only after 9.x output reordering |
+| `default` (x264 Main CAVLC, I/P/B, weighted P) | no | no | no | no | no | yes (with Phase 7's sort-by-POC output) |
 | T10 (CABAC), T11 (High), T12 (interlaced) | Phase 8 / 10 | | | | | |
 
-("yes" for a column means the recipe decodes byte-identically with a decoder that has that chapter's features. Output order of B files is the shortcut of Summary Phase 7.)
+("yes" for a column means the recipe decodes byte-identically with a decoder that has that chapter's features. Output order of B files is the shortcut of Summary Phase 7: frames sorted by POC within each IDR period, until Chapter 9.1's bumping replaces it.)
 
 ## 5. Harness input format
 

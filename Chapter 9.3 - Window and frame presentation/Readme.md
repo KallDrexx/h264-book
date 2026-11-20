@@ -1,5 +1,7 @@
 # Chapter 9.3 - Window and frame presentation
 
+> **SPOILER WARNING - do not open `spoiler_reference/` until your own presenter passes.** `spoiler_reference/presenter.py` and `player.py` are complete solutions of this chapter; `synth.py` builds the synthetic test streams. `test_present.py` is plumbing and safe to read.
+
 ## 1. Goal and the project
 
 You can now turn a decoded frame into RGB (9.2). This chapter puts those pixels on a screen: a **minimal native window** that shows one RGB buffer, with keys to **pause** and **step one frame**. It is the one place in the book where you call an operating-system API directly (Win32, Cocoa, X11 or Wayland). The OS part is small. The part that goes wrong is everything around it: pixel byte order, row stride, upside-down images, wrong aspect ratio, a pause that does not freeze, a step that skips a frame.

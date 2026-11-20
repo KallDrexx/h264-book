@@ -1,6 +1,6 @@
 # Chapter 5.5 - QP tracking and multiple slices
 
-> **SPOILER WARNING: do not open `refdecode.py`, `intraref.py`, `intra4ref.py` or `transref.py`.** `refdecode.py` in this folder is a complete reference reader, shipped only for the harness's self-test; the other three are the solutions of Chapters 5.2 to 5.4. Write your own first, and look at them only to compare after a test has failed and section 7 did not help. `qsgen.py` (the stream generator) computes no pictures, but it contains its own writer-side implementation of this chapter's QP rules, so read it only after your reader passes.
+> **SPOILER WARNING: do not open `spoiler_reference/`** (`refdecode.py`, `intraref.py`, `intra4ref.py`, `transref.py`). `refdecode.py` there is a complete reference reader, shipped only for the harness's self-test; the other three are the solutions of Chapters 5.2 to 5.4. Write your own first, and look at them only to compare after a test has failed and section 7 did not help. `qsgen.py` (the stream generator) computes no pictures, but it contains its own writer-side implementation of this chapter's QP rules, so read it only after your reader passes.
 
 ## 1. Goal and the project
 
@@ -54,7 +54,7 @@ When the macroblock has an `mb_qp_delta` syntax element:
 QP_Y = ((QP_Y,PRED + mb_qp_delta + 52 + 2 * QpBdOffset_Y) % (52 + QpBdOffset_Y)) - QpBdOffset_Y
 ```
 
-For the 8-bit video of Phase 5, `QpBdOffset_Y = 0` and the formula is simply `QP_Y = (QP_Y,PRED + mb_qp_delta + 52) % 52`, with `%` the non-negative remainder. (Higher bit depths, Phase 8 or later, make `QpBdOffset_Y = 6 * (bit_depth - 8)`; keep it as a variable that is 0 for now.) `mb_qp_delta` itself is limited to `-(26 + QpBdOffset_Y/2) .. +(25 + QpBdOffset_Y/2)`, i.e. -26..+25.
+For the 8-bit video of Phase 5, `QpBdOffset_Y = 0` and the formula is simply `QP_Y = (QP_Y,PRED + mb_qp_delta + 52) % 52`, with `%` the non-negative remainder. (Higher bit depths make `QpBdOffset_Y = 6 * (bit_depth - 8)`; they are outside this book's scope (8-bit 4:2:0 only, see `Summary.md`), but keeping it as a variable that is 0 costs nothing.) `mb_qp_delta` itself is limited to `-(26 + QpBdOffset_Y/2) .. +(25 + QpBdOffset_Y/2)`, i.e. -26..+25.
 
 Why a wrap-around and not a clamp: a difference of -26..+25 reaches every QP from every QP only if the arithmetic is cyclic. Examples (8-bit):
 
@@ -205,6 +205,8 @@ python3 test_qp_slices.py ../.cache/T4_crf30.ts out.yuv
 
 What is compared: ffmpeg's output (`-fps_mode passthrough -f rawvideo -pix_fmt yuv420p`, cropped) against `out.yuv`, via `common/yuvcmp.py` for the first difference in pixel order. On success the harness prints what the stream exercised (slices per picture, QP range, number of non-zero and wrapping deltas, macroblocks after I_PCM, the constrained-intra flag value).
 
+Exit codes: **0** = your YUV is identical to ffmpeg's, **1** = it differs (the report below), **2** = unusable input: the stream or your YUV file is missing or empty, ffmpeg cannot decode the stream, or the arguments are wrong. `--self-test` exits 0 when the harness passes its own checks, 1 otherwise.
+
 On failure it additionally:
 
 - finds the first wrong macroblock in **decoding order** (not pixel order, which can point at a later macroblock);
@@ -214,7 +216,7 @@ On failure it additionally:
 
 Expected results: **everything passes**: all synthetic streams, T1, T2, T4_nodeblock, T2_crf30, T4_crf30, T2_aq, T2_cip. After this chapter **T1, T2 and T4_nodeblock decode byte-exact.** T3 and T4 still have the deblocking filter on; the harness falls back to a plain comparison for streams outside Phase 5 and will fail them.
 
-**How the harness checks itself.** `python3 test_qp_slices.py --self-test` (a few minutes) generates every stream and runs the reference reader (`refdecode.py`) on them; it must match ffmpeg byte for byte. It checks that the real recipes contain what they should (four slices per picture, hundreds of non-zero deltas, the PPS flag set), that the reference parser's QP chain agrees with ffmpeg's own QP map on I_PCM-heavy, wrapping and multi-slice streams, then requires failure for a corrupted sample, a corrupted Cr sample and two truncations. Finally it plants **fifteen deliberately wrong rules**, one at a time, in the reference reader, and requires the harness to catch each one on some stream (a few also on real x264 streams):
+**How the harness checks itself.** `python3 test_qp_slices.py --self-test` (a few minutes) generates every stream and runs the reference reader (`spoiler_reference/refdecode.py`) on them; it must match ffmpeg byte for byte. It checks that the real recipes contain what they should (four slices per picture, hundreds of non-zero deltas, the PPS flag set), that the reference parser's QP chain agrees with ffmpeg's own QP map on I_PCM-heavy, wrapping and multi-slice streams, then requires failure for a corrupted sample, a corrupted Cr sample and two truncations. Finally it plants **fifteen deliberately wrong rules**, one at a time, in the reference reader, and requires the harness to catch each one on some stream (a few also on real x264 streams):
 
 | Mutant | The wrong rule |
 | --- | --- |
@@ -236,7 +238,7 @@ Expected results: **everything passes**: all synthetic streams, T1, T2, T4_nodeb
 
 Four of them (`cqp_noclip`, `mp_avail_noslice`, `cip_all_unavailable`, `cip_pcm_unavailable`) make the reference reader itself fail on every stream: the wrong rule produces a QP outside the tables, or meets a prediction mode that needs a neighbour the rule has just declared unavailable. The self-test labels these "ONLY BY CRASHING". Your reader may survive such a bug instead (or, if the bug also changes `nC`, lose the CAVLC bit position); it then writes wrong samples or too few frames, and the comparison rejects that. The self-test also checks that the failure reports of four mutants contain the right diagnosis. It prints `SELF-TEST PASS`.
 
-> **Spoiler warning (again).** `refdecode.py` and the other `*ref.py` files are complete solutions. Do not open them until you have tried, and then only to compare after a test has failed and the tips below did not help.
+> **Spoiler warning (again).** `spoiler_reference/refdecode.py` and the other `*ref.py` files there are complete solutions. Do not open them until you have tried, and then only to compare after a test has failed and the tips below did not help.
 
 ## 7. Reading failures / debugging tips
 

@@ -627,7 +627,7 @@ def mv_vs_ffmpeg(path, td, cache):
     with a zero vector; both are accounted for.  -> (compared, differing)."""
     raw = path
     outp = os.path.join(td, "ffmv.txt")
-    r = subprocess.run([sys.executable, os.path.join(HERE, "ffmv_helper.py"), raw, outp], stdin=subprocess.DEVNULL, capture_output=True, timeout=300)
+    r = subprocess.run([sys.executable, os.path.join(HERE, "..", "common", "ffmv_helper.py"), raw, outp], stdin=subprocess.DEVNULL, capture_output=True, timeout=300)
     if r.returncode != 0:
         return 0, 0
     frs = mbdec.decode(path, workdir=td, cache=cache)

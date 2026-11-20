@@ -73,7 +73,7 @@ Details that decide whether your output matches:
   (The spec states the limit as 4 in quarter *frame* samples; field macroblocks and field pictures, Phase 10, store vertical vectors in field units, so there it is 2. B slices, 7.8: with two vectors per block the comparison is made on matched pairs and the swapped pairing is allowed; with one vector against two the answer is bS 1.)
 * **Inside a macroblock** the same ladder applies to every internal edge. Two 4x4 blocks of the same partition have equal reference and vector, so only coefficients can raise that edge; an edge between two partitions can be 1 by motion. Do not special-case partitions: look at the 16 per-block (reference picture, vector) pairs you already stored for vector prediction.
 * **P_Skip** is an inter block with reference index 0, the inferred vector and no coefficients. Skipped macroblocks must be in your per-block motion store with their *inferred* vector (not 0,0).
-* **I_PCM** is intra: 4 / 3 like any other intra macroblock, and `qP = 0` in the filter (Phase 6.2).
+* **I_PCM** is intra: 4 / 3 like any other intra macroblock, and `qP = 0` in the filter (Chapter 6.2).
 * **Slices.** A macroblock edge between two slices (idc 0) is filtered with bS computed exactly as usual; the p block's reference picture is resolved through *its own* slice's list.
 
 ### 3.3 Where the filter sits in the decoding loop
@@ -125,8 +125,8 @@ Check your bS function on these before you run a stream (p, q are the two 4x4 bl
 Extend the 7.4 decoder:
 
 1. While decoding each macroblock, keep for the picture: slice id, intra / I_PCM flag, QP_Y (0 for the filter if I_PCM), per 4x4 luma block "has non-zero coefficients" and (reference picture identity, vector) for inter macroblocks. Give every stored picture an identity.
-2. After the last macroblock of a picture: for every macroblock the edge flags (Phase 6.1) and the 32 bS values with the ladder of 3.2.
-3. The Phase 6.2 filter over the picture (3.1, 3.3), then output the picture and store the filtered picture as a reference.
+2. After the last macroblock of a picture: for every macroblock the edge flags (Chapter 6.1) and the 32 bS values with the ladder of 3.2.
+3. The Chapter 6.2 filter over the picture (3.1, 3.3), then output the picture and store the filtered picture as a reference.
 4. Optional but recommended: the bS dump (section 5), which lets you debug the decision separately from the filter.
 
 **Verify:** `T6` (deblocking on) decodes byte-identical for all 50 frames. Before that, check the unit cases of 3.5; `T5` and `T6_nodeblock` (from 7.4) must still pass.
@@ -136,19 +136,7 @@ Not yet there: `ref_pic_list_modification` and MMCO / long-term references / `fr
 
 ### Which recipes can be decoded exactly after each Phase 7 chapter
 
-| recipe | after 7.4 | after 7.5 | 7.6 | 7.7 | 7.8 | 7.9 |
-|---|---|---|---|---|---|---|
-| T1, T2, T4_nodeblock, `default_intra` (intra, no deblock) | yes | yes | yes | yes | yes | yes |
-| T3, T3_dm3, T3_dp3, T4 (intra, deblocking) | yes (Phase 6) | yes | yes | yes | yes | yes |
-| T5 (P16x16) | yes | yes | yes | yes | yes | yes |
-| T6_nodeblock (all partitions, ref=4, no deblock) | yes | yes | yes | yes | yes | yes |
-| T6 (deblocking on) | no | **yes - first complete Baseline decoder** | yes | yes | yes | yes |
-| T6 with `ref=16`, reordering / MMCO variants | no | plain `ref=16` streams without reordering (`d_ref16`) | **yes** | yes | yes | yes |
-| T7 (weighted P, fade) | no | no | no | **yes** | yes | yes |
-| T8 (B, no direct) | no | no | no | no | **yes** | yes |
-| T9_spatial, T9_temporal (B pyramid, direct, implicit weights) | no | no | no | no | no | **yes** |
-| `default` (x264 Main CAVLC, I/P/B, weighted P) | no | no | no | no | no | yes (with Phase 7's sort-by-POC output) |
-| T10 (CABAC), T11 (High), T12 (interlaced) | Phase 8 / 10 | | | | | |
+See the table in Chapter 7.4 (section 4). After this chapter the new entries are `T6` (deblocking on: the first complete Baseline decoder) and plain `ref=16` streams without reordering such as `d_ref16` below; reordering, MMCO and long-term references wait for 7.6.
 
 ## 5. Harness input format
 

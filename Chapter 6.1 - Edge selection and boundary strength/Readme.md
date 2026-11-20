@@ -1,6 +1,6 @@
 # Chapter 6.1 - Edge selection and boundary strength
 
-> **Spoiler warning.** The folder `spoiler_reference/` contains the harness's reference bS computer (`bsref.py`) and a complete reference deblocking filter (`deblock_ref.py`, which Chapter 6.2 builds on). **Do not open it until you have tried.** The harness imports it for you; you never need to read it.
+> **Spoiler warning.** The folder `spoiler_reference/` contains the harness's reference bS computer (`bsref.py`) and a complete reference deblocking filter (`deblock_ref.py`, which Chapter 6.2 builds on), plus `transref.py`, a copy of Chapter 5.2's solution that the stream generator `bsgen.py` uses. **Do not open it until you have tried.** The harness imports it for you; you never need to read it.
 
 ## 1. Goal and the project
 

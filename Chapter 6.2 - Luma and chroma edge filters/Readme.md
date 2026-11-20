@@ -1,6 +1,6 @@
 # Chapter 6.2 - Luma and chroma edge filters
 
-> **SPOILER WARNING: do not open `spoiler_reference/` until your own filter works.** It contains `deblock_ref.py`, a complete reference deblocking filter (the one Chapter 6.1 used to validate its bS grid), and `bsref.py`, the reference bS computer. The harness imports them for you; you never need to read them.
+> **SPOILER WARNING: do not open `spoiler_reference/` until your own filter works.** It contains `deblock_ref.py`, a complete reference deblocking filter (the one Chapter 6.1 used to validate its bS grid), and `bsref.py`, the reference bS computer (plus `transref.py`, a copy of Chapter 5.2's solution that the stream generator `bsgen.py` uses). The harness imports them for you; you never need to read them.
 
 ## 1. Goal and the project
 
