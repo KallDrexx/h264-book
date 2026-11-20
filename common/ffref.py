@@ -66,6 +66,9 @@ def raw_h264(ts, out_264):
 
 
 def reference_yuv(ts, out_yuv):
-    """Bit-exact decoded reference: all frames, no frame dup/drop, 8-bit 4:2:0."""
+    """Bit-exact decoded reference: all frames, no frame dup/drop, 8-bit 4:2:0.
+
+    The output is CROPPED per the SPS (frame_cropping_*), planar, unpadded, in output (display) order;
+    see common/yuvref.py and common/yuvcmp.py."""
     run(["ffmpeg", "-v", "error", "-y", "-i", ts, "-map", "0:v:0", "-fps_mode", "passthrough",
          "-f", "rawvideo", "-pix_fmt", "yuv420p", out_yuv], timeout=600)
