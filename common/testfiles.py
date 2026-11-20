@@ -21,6 +21,8 @@ RECIPES = {
     "T3_dm3": ([], "-profile:v baseline -x264-params keyint=1:partitions=i4x4:deblock=-3,-3"),
     "T3_dp3": ([], "-profile:v baseline -x264-params keyint=1:partitions=i4x4:deblock=3,3"),
     "T4": ([], "-profile:v baseline -x264-params keyint=1:partitions=i4x4:slices=4"),
+    # (5.4) T4 without deblocking: T2's options plus four slices.  Decodable byte-exactly in Phase 5 (before Phase 6).
+    "T4_nodeblock": ([], "-profile:v baseline -x264-params keyint=1:partitions=i4x4:no-deblock=1:slices=4"),
     "T5": ([], "-profile:v baseline -bf 0 -x264-params keyint=50:partitions=none:ref=1:no-deblock=1"),
     "T6": ([], "-profile:v baseline -bf 0 -x264-params keyint=50:partitions=all:ref=4"),
     "T7": (["-vf", "fade=in:0:25"], "-profile:v main -x264-params cabac=0:bframes=0:weightp=2"),
@@ -33,6 +35,9 @@ RECIPES = {
     "T11_cqm": ([], "-profile:v high -x264-params cqm=jvt"),
     "T12": ([], "-profile:v high -x264-params interlaced=1:tff=1"),
     # Convenience: a generic stream with every common feature (I/P/B, CAVLC, 2 s).
+    # (5.4) Main-profile intra-only CAVLC without deblocking and with x264's default partitions: a "default-style"
+    # input every Phase 5 decoder can reproduce exactly.
+    "default_intra": ([], "-profile:v main -x264-params cabac=0:keyint=1:no-deblock=1"),
     "default": ([], "-profile:v main -x264-params cabac=0"),
 }
 

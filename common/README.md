@@ -2,7 +2,7 @@
 
 Shared stdlib-only helpers for chapter test harnesses (not part of any chapter's text).
 
-- `testfiles.py` - builds the Summary's T1..T12 `.ts` recipes into `.cache/` (git-ignored). `python3 -m common.testfiles [names]`.
+- `testfiles.py` - builds the Summary's T1..T12 `.ts` recipes into `.cache/` (git-ignored); extra recipes `T4_nodeblock` (T2 options + `slices=4`) and `default_intra` (Main, CAVLC, intra-only, no deblocking) were added in 5.4. `python3 -m common.testfiles [names]`.
 - `ffref.py` - timeout-protected ffmpeg/ffprobe wrappers (packets, frames, trace_headers, raw .264, reference YUV).
 - `cavlc_ref.py` - reference parser for CAVLC macroblock data (Phase 4 harness truth) plus ffmpeg macroblock-map reader (`ffmpeg_mb_grid`) and QP-map reader (`ffmpeg_qp_grid`, from 4.2). Chapters 4.2-4.4 extend it by adding a parsing `level` (level 3, from 4.3, parses complete residuals via `cavlc_resid.py`; `render_blocks()` writes 4.3's block boundary file; level 4, from 4.4, only adds the `coef` key and the END `end_bit`) (each harness passes its own, so earlier chapters' expected output never changes).
 - `cavlc_tables.py` - CAVLC code tables as bit strings (Table 9-5 coeff_token, total_zeros 9-7..9-9, run_before 9-10) with structural checks and a best-effort comparison against the installed libavcodec (4.3).
