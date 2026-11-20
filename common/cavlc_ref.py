@@ -44,6 +44,10 @@ status=error).  Five keys are added to the MB line: nc, tc (per coded block, dec
 total_coeff stored for every 4x4 block after the macroblock).  render_blocks() writes the "block boundary" file that
 Chapter 4.3's reader consumes in place of the levels / total_zeros / run_before syntax it has not learnt yet.
 
+LEVEL 4 (Chapter 4.4): no new parsing; the residual parser already reads levels, total_zeros and run_before (level 3 needed
+them to find block boundaries).  Level 4 prints their result: the key `coef` (non-zero coefficients of every coded block,
+see cavlc_resid.coef_string) on the MB line and `end_bit` on the END line.
+
 DUMP FORMAT (shared by all Phase 4 chapters; see Chapter 4.1's Readme for the full grammar):
     SLICE <i> type=<I|P|B|SP|SI> first_mb=<n> pic_size_in_mbs=<n> header_end_bit=<n>
     MB <i> <addr> mb_type=<raw> name=<NAME> i16_mode=<0-3|-> chroma_cbp=<0-2|-> luma_cbp=<0|15|-> bit=<n>
@@ -63,9 +67,11 @@ from common import ffref, cavlc_resid  # noqa: E402
 # 1 = Chapter 4.1 (mb_type, I_PCM, zero-residual Intra16x16 "skeleton").
 # 2 = Chapter 4.2 (mb_pred modes, intra_chroma_pred_mode, coded_block_pattern, mb_qp_delta, QP chain,
 #     transform_size_8x8_flag; residual only as a "zero coeff_token" scaffold).
+# 4 = Chapter 4.4 (adds the coefficient arrays `coef` to the MB line and `end_bit` to the END line; the parsing itself
+#     is the level-3 residual parser).
 # 3 = Chapter 4.3 (neighbour availability, nC, coeff_token; the whole residual of every block is parsed so that
 #     the slice runs to its end; see LEVEL 3 below and cavlc_resid.py).
-MAX_LEVEL = 3
+MAX_LEVEL = 4
 
 SLICE_NAMES = ["P", "B", "I", "SP", "SI"]
 
@@ -288,6 +294,7 @@ EXTRA_KEYS_BY_LEVEL = {
     1: [],   # 4.1: nothing extra (chroma_pred_mode / mb_qp_delta are stored in .f but not printed)
     2: ["t8x8", "modes", "chroma_pred", "cbp", "qp_delta", "qp"],   # 4.2 (see Chapter 4.2's Readme, section 5)
     3: ["nc", "tc", "tcl", "tccb", "tccr"],                          # 4.3 (see Chapter 4.3's Readme, section 5)
+    4: ["coef"],                                                     # 4.4 (see Chapter 4.4's Readme, section 5)
 }
 
 # Table 9-4, column Intra_4x4/Intra_8x8, ChromaArrayType 1 or 2: codeNum -> coded_block_pattern
@@ -324,6 +331,7 @@ class SliceResult:
         self.status = "skipped"      # complete | stopped | skipped | error
         self.error = None
         self.note = info.skip_reason
+        self.end_bit = None          # bit position where the last macroblock ended (complete slices: the stop bit)
 
 
 # ================================================================ the macroblock parser
@@ -480,7 +488,7 @@ def parse_slice(info, level=1):
                 if level >= 3:
                     ctx["res3"].pcm(addr)
                     rec.blocks = []
-                    rec.f.update(nc="-", tc="-")
+                    rec.f.update(nc="-", tc="-", coef="-")
                     ctx["res3"].stored(rec)
             if level >= 3 and br.pos > br.stop_bit:
                 raise ParseError(f"macroblock {addr} ends at bit {br.pos}, after the rbsp_stop_one_bit at bit {br.stop_bit}")
@@ -489,6 +497,7 @@ def parse_slice(info, level=1):
                 return res
             if not br.more_rbsp_data():          # moreDataFlag = more_rbsp_data()
                 res.status = "complete"
+                res.end_bit = br.pos
                 return res
             addr += 1                            # no FMO: NextMbAddress is addr + 1
     except ParseError as e:
@@ -513,7 +522,10 @@ def render_slice(res, level=1):
             p = rec.pcm
             out.append(f"PCM {i.index} {rec.addr} align_bits={p['align_bits']} sum_y={p['sum_y']} "
                        f"sum_cb={p['sum_cb']} sum_cr={p['sum_cr']}")
-    out.append(f"END {i.index} mbs={len(res.mbs)} status={res.status}")
+    extra = ""
+    if level >= 4:                    # Chapter 4.4: where the last macroblock ended (the rbsp_stop_one_bit of a complete slice)
+        extra = f" end_bit={res.end_bit if res.status == 'complete' else '-'}"
+    out.append(f"END {i.index} mbs={len(res.mbs)} status={res.status}{extra}")
     return out
 
 

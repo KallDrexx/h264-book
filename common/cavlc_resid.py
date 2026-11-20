@@ -20,6 +20,7 @@ neighbour / nC rules) and prove the harness notices.  None means the correct rul
 from . import cavlc_tables as T
 
 MUTANT = None
+STATS = None      # a dict of sets (see residual_block) while a harness collects coverage; None otherwise
 
 # luma4x4BlkIdx -> (x, y) in units of 4x4 blocks (6.4.3) and back
 BLK_XY = [(((i >> 2) & 1) * 2 + (i & 1), ((i >> 3) & 1) * 2 + ((i >> 1) & 1)) for i in range(16)]
@@ -128,7 +129,8 @@ class SliceResidual:
         def block(kind_, idx, nc, maxnum, store):
             start = br.pos
             tc, t1, coeffs = residual_block(br, nc, maxnum)
-            rec.blocks.append(dict(kind=kind_, idx=idx, start=start, end=br.pos, nc=nc, tc=tc, t1=t1, coeffs=coeffs))
+            rec.blocks.append(dict(kind=kind_, idx=idx, start=start, end=br.pos, nc=nc, tc=tc, t1=t1, coeffs=coeffs,
+                                   maxnum=maxnum))
             if store is not None:
                 store(tc)
 
@@ -163,6 +165,7 @@ class SliceResidual:
         f = rec.f
         f["nc"] = ",".join(str(b["nc"]) for b in rec.blocks) or "-"
         f["tc"] = ",".join(f"{b['tc']}/{b['t1']}" for b in rec.blocks) or "-"
+        f["coef"] = coef_string(rec.blocks)
         self.stored(rec)
 
     def stored(self, rec):
@@ -170,6 +173,20 @@ class SliceResidual:
         rec.f["tcl"] = ",".join(map(str, self.tcl[a]))
         rec.f["tccb"] = ",".join(map(str, self.tcc[a][0]))
         rec.f["tccr"] = ",".join(map(str, self.tcc[a][1]))
+
+
+def coef_string(blocks):
+    """The `coef=` value of a macroblock line (Chapter 4.4, level 4): the coded blocks in decoding order separated by
+    ';', each  <kind><idx>:<list>  with <list> either '-' (all coefficients zero) or comma separated pos=value pairs
+    (non-zero coefficients only, ascending pos).  pos is the position in the 4x4 zig-zag scan (0..15), or for the
+    chroma DC blocks the index 0..3 of the 2x2 DC coefficient: for the 15-coefficient blocks (Intra16x16 AC,
+    chroma AC) coefficient k of the block's list sits at scan position k + 1.  '-' when the macroblock has no block."""
+    out = []
+    for b in blocks:
+        off = 0 if MUTANT == "no_ac_offset" else (1 if b["maxnum"] == 15 else 0)
+        nz = [f"{k + off}={v}" for k, v in enumerate(b["coeffs"]) if v]
+        out.append(f"{b['kind']}{b['idx']}:" + (",".join(nz) if nz else "-"))
+    return ";".join(out) or "-"
 
 
 # ---------------------------------------------------------------------------------------- residual_block_cavlc
@@ -183,10 +200,12 @@ def residual_block(br, nc, maxnum):
     if tc == 0:
         return 0, 0, coeffs
     levels = []
-    suffix_length = 1 if tc > 10 and t1 < 3 else 0
+    suffix_length = 1 if tc > 10 and t1 < 3 and MUTANT != "lvl_sl_init" else 0
+    if STATS is not None:
+        STATS["init"].add((tc > 10, t1 < 3, suffix_length))
     for i in range(tc):
         if i < t1:
-            levels.append(1 - 2 * br.u(1))
+            levels.append(2 * br.u(1) - 1 if MUTANT == "t1_sign" else 1 - 2 * br.u(1))
             continue
         prefix = 0
         while br.u(1) == 0:
@@ -194,7 +213,7 @@ def residual_block(br, nc, maxnum):
             if prefix > 31:
                 raise _error("level_prefix longer than 31")
         code = min(15, prefix) << suffix_length
-        if prefix == 14 and suffix_length == 0:
+        if prefix == 14 and suffix_length == 0 and MUTANT != "lvl_p14":
             size = 4
         elif prefix >= 15:
             size = prefix - 3
@@ -202,39 +221,59 @@ def residual_block(br, nc, maxnum):
             size = suffix_length
         if size:
             code += br.u(size)
-        if prefix >= 15 and suffix_length == 0:
+        if prefix >= 15 and suffix_length == 0 and MUTANT != "lvl_esc_sl0":
             code += 15
-        if prefix >= 16:
+        if prefix >= 16 and MUTANT != "lvl_esc16":
             code += (1 << (prefix - 3)) - 4096
-        if i == t1 and t1 < 3:
+        if i == t1 and t1 < 3 and MUTANT != "lvl_no_adjust":
             code += 2
         level = (code + 2) >> 1 if code % 2 == 0 else (-code - 1) >> 1
         levels.append(level)
+        if STATS is not None:
+            STATS["level"].add((suffix_length, min(prefix, 16)))              # (suffixLength used, level_prefix)
+            if i == t1 and t1 < 3:
+                STATS["adjust"].add(suffix_length)                            # the +2 rule fired at this suffixLength
         if suffix_length == 0:
             suffix_length = 1
-        if abs(level) > (3 << (suffix_length - 1)) and suffix_length < 6:
+        thr = 3 << (suffix_length - 1)
+        if MUTANT == "lvl_inc_ge":
+            hit = abs(level) >= thr
+        elif MUTANT == "lvl_no_inc":
+            hit = False
+        else:
+            hit = abs(level) > thr
+        if hit and suffix_length < 6:
             suffix_length += 1
+        if STATS is not None:
+            STATS["sl"].add(suffix_length)
     if tc < maxnum:
         if maxnum == 4:
-            total_zeros = read_vlc(br, T.TOTAL_ZEROS_DC[tc], f"total_zeros (chroma DC, TotalCoeff {tc})")
+            total_zeros = read_vlc(br, (T.TOTAL_ZEROS if MUTANT == "tz_dc_table" else T.TOTAL_ZEROS_DC)[tc],
+                                   f"total_zeros (chroma DC, TotalCoeff {tc})")
         else:
             total_zeros = read_vlc(br, T.TOTAL_ZEROS[tc], f"total_zeros (TotalCoeff {tc})")
         if total_zeros > maxnum - tc:
             raise _error(f"total_zeros {total_zeros} with TotalCoeff {tc} does not fit maxNumCoeff {maxnum}")
     else:
         total_zeros = 0
+    if STATS is not None:
+        STATS["tz"].add(("dc" if maxnum == 4 else "4x4", tc, total_zeros))
     runs, left = [], total_zeros
     for i in range(tc - 1):
         if left > 0:
-            r = read_vlc(br, T.RUN_BEFORE[min(left, 7)], f"run_before (zerosLeft {left})")
+            r = read_vlc(br, T.RUN_BEFORE[min(left, 6 if MUTANT == "run_min6" else 7)], f"run_before (zerosLeft {left})")
             if r > left:
                 raise _error(f"run_before {r} larger than zerosLeft {left}")
+            if STATS is not None:
+                STATS["run"].add((left, r))
         else:
             r = 0
         runs.append(r)
         left -= r
     runs.append(left)
     pos = -1
+    if MUTANT == "place_reversed":
+        levels = levels[::-1]
     for i in range(tc - 1, -1, -1):             # levels[0] is the highest-frequency coefficient
         pos += runs[i] + 1
         coeffs[pos] = levels[i]
