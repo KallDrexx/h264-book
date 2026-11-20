@@ -36,6 +36,9 @@ RECIPES = {
     "T6": ([], "-profile:v baseline -bf 0 -x264-params keyint=50:partitions=all:ref=4"),
     # (7.4) T6 without deblocking: T6's options plus no-deblock=1.  Every partition size, several references, intra MBs in P.
     "T6_nodeblock": ([], "-profile:v baseline -bf 0 -x264-params keyint=50:partitions=all:ref=4:no-deblock=1"),
+    # (7.6) T6's options with ref=16 instead of ref=4 (16 reference frames: the sliding window and the frame_num wrap
+    # with a full buffer).  Exactly decodable after 7.6.
+    "T6_ref16": ([], "-profile:v baseline -bf 0 -x264-params keyint=50:partitions=all:ref=16"),
     "T7": (["-vf", "fade=in:0:25"], "-profile:v main -x264-params cabac=0:bframes=0:weightp=2"),
     "T8": ([], "-profile:v main -x264-params cabac=0:bframes=2:b-pyramid=none:direct=none:weightb=0"),
     "T9_spatial": ([], "-profile:v main -x264-params cabac=0:bframes=3:direct=spatial:weightb=1:b-pyramid=normal"),
