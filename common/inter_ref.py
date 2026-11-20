@@ -39,7 +39,8 @@ INTER_LEVEL = 1
 MUTANT = None
 
 P_KEYS = ["skip_run", "sub", "refidx", "mvd"]
-EXTRA_KEYS_BY_LEVEL = {1: P_KEYS}
+MV_KEYS = ["mvp", "mv"]                 # level 2 (Chapter 7.3): filled by that chapter's spoiler_reference/mvpred_ref.py, not here
+EXTRA_KEYS_BY_LEVEL = {1: P_KEYS, 2: MV_KEYS}
 def keys_mb(level=1):
     """MB-line keys printed at a level: the Phase 4 keys, then this module's keys of every level <= level."""
     return (MbRecord.CORE_KEYS + ref.EXTRA_KEYS_BY_LEVEL[2] + ref.EXTRA_KEYS_BY_LEVEL[3] + ref.EXTRA_KEYS_BY_LEVEL[4]
