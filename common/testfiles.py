@@ -13,7 +13,8 @@ from .ffref import require_tools
 CACHE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".cache")
 SRC = "testsrc2=size=352x288:rate=25"
 
-# id -> (extra input filter args, codec options)
+# id -> (extra input filter args, codec options[, rate-control args])
+# The optional third element (added in 5.5) replaces the default rate control "-qp 26".
 RECIPES = {
     "T1": ([], "-profile:v baseline -x264-params keyint=1:partitions=none:no-deblock=1"),
     "T2": ([], "-profile:v baseline -x264-params keyint=1:partitions=i4x4:no-deblock=1"),
@@ -23,6 +24,14 @@ RECIPES = {
     "T4": ([], "-profile:v baseline -x264-params keyint=1:partitions=i4x4:slices=4"),
     # (5.4) T4 without deblocking: T2's options plus four slices.  Decodable byte-exactly in Phase 5 (before Phase 6).
     "T4_nodeblock": ([], "-profile:v baseline -x264-params keyint=1:partitions=i4x4:no-deblock=1:slices=4"),
+    # (5.5) QP-tracking variants of T2 / T4_nodeblock.  Constant-quality encodes (-crf) let x264's adaptive quantisation
+    # change QP_Y from macroblock to macroblock, so the stream carries many non-zero mb_qp_delta values.
+    "T2_crf30": ([], "-profile:v baseline -x264-params keyint=1:partitions=i4x4:no-deblock=1", ["-crf", "30"]),
+    "T2_aq": ([], "-profile:v baseline -x264-params keyint=1:partitions=i4x4:no-deblock=1:aq-mode=2:aq-strength=1.6",
+               ["-crf", "24"]),
+    "T4_crf30": ([], "-profile:v baseline -x264-params keyint=1:partitions=i4x4:no-deblock=1:slices=4", ["-crf", "30"]),
+    # constrained_intra_pred_flag = 1 in the PPS; in an all-intra stream it must change nothing.
+    "T2_cip": ([], "-profile:v baseline -x264-params keyint=1:partitions=i4x4:no-deblock=1:constrained-intra=1"),
     "T5": ([], "-profile:v baseline -bf 0 -x264-params keyint=50:partitions=none:ref=1:no-deblock=1"),
     "T6": ([], "-profile:v baseline -bf 0 -x264-params keyint=50:partitions=all:ref=4"),
     "T7": (["-vf", "fade=in:0:25"], "-profile:v main -x264-params cabac=0:bframes=0:weightp=2"),
@@ -50,9 +59,10 @@ def get(recipe="default", force=False):
     os.makedirs(CACHE, exist_ok=True)
     out = os.path.join(CACHE, recipe + ".ts")
     if force or not os.path.exists(out):
-        vf, opts = RECIPES[recipe]
+        vf, opts, *rc = RECIPES[recipe]
+        rc = rc[0] if rc else ["-qp", "26"]
         cmd = ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", SRC, "-t", "2",
-               "-pix_fmt", "yuv420p", "-c:v", "libx264", "-qp", "26", *vf,
+               "-pix_fmt", "yuv420p", "-c:v", "libx264", *rc, *vf,
                *opts.split(), "-f", "mpegts", out + ".tmp"]
         r = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, timeout=180)
         if r.returncode != 0:
